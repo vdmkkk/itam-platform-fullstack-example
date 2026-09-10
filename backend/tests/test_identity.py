@@ -45,6 +45,7 @@ def test_first_contact_provisions_the_profile_from_the_platform(client, alice):
     assert profile["email"] == "alice@example.com"
     assert profile["avatar_url"] == "https://example.com/avatars/alice.png"
     assert profile["stream"] == {"id": str(alice.stream_id), "code": "26F", "title": None, "name": "26F"}
+    assert isinstance(profile["created_at"], int)
 
 
 def test_platform_changes_never_overwrite_local_edits(client, alice):
@@ -126,13 +127,15 @@ def test_openapi_documents_a_single_error_shape(client):
     assert "ValidationErrorResponse" in spec["components"]["schemas"]
 
 
-def test_openapi_is_russian_and_card_dates_are_integers(client):
+def test_openapi_is_russian_and_times_are_integers(client):
     spec = client.get("/openapi.json").json()
     assert "Successful Response" not in json.dumps(spec)
     assert "## 3. Правила" in spec["info"]["description"]
     schemas = spec["components"]["schemas"]
     assert {"type": "integer", "minimum": 0, "maximum": 4102444799} in schemas["CardCreate"]["properties"]["date"]["anyOf"]
     assert {"type": "integer"} in schemas["Card"]["properties"]["date"]["anyOf"]
+    assert schemas["Card"]["properties"]["created_at"]["type"] == "integer"
+    assert "is_demo" not in schemas["User"]["properties"]
 
 
 def test_rate_limit_is_429_with_retry_after(make_client, alice):

@@ -10,7 +10,6 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 
-from app import seed
 from conftest import STREAM_A, STREAM_B
 from helpers import comment, create_card, ids, me, names, vote
 
@@ -54,7 +53,7 @@ def test_other_stream_cannot_see(client, alice, bob, carol):
     assert not {"Alice Student", "Bob Student"} & carol_people
 
     board = client.get("/api/board", headers=carol.headers).json()
-    assert board["cards_count"] == len(seed.CARDS)
+    assert board["cards_count"] == 0
     assert board["members_count"] == 1
 
 
@@ -88,13 +87,6 @@ def test_students_without_a_stream_are_isolated_too(client, alice, nora):
     assert client.get(f"/api/cards/{alice_card['id']}", headers=nora.headers).status_code == 404
     assert client.get(f"/api/cards/{nora_card['id']}", headers=alice.headers).status_code == 404
     assert me(client, nora)["stream"] == {"id": None, "code": None, "title": None, "name": "Без потока"}
-
-
-def test_each_stream_gets_its_own_seeded_board(client, alice, carol):
-    board_a = client.get("/api/cards", headers=alice.headers).json()
-    board_b = client.get("/api/cards", headers=carol.headers).json()
-    assert len(board_a) == len(board_b) == len(seed.CARDS)
-    assert not ids(board_a) & ids(board_b)
 
 
 def test_database_refuses_rows_that_cross_streams(client, database_url, alice, carol):

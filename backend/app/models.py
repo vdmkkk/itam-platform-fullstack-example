@@ -13,7 +13,6 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
-    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -26,7 +25,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
-    false,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -85,9 +83,7 @@ class User(Base):
     stream_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("streams.id", ondelete="CASCADE"), index=True
     )
-    # NULL for the demo people seeded into every new stream.
-    platform_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
-    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    platform_user_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     # Copied from the platform on first sight, then owned by the student.
     name: Mapped[str] = mapped_column(String(80))
     email: Mapped[str | None] = mapped_column(String(320))

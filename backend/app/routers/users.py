@@ -100,11 +100,8 @@ def list_users(
     actor: CurrentActor,
     db: DbSession,
     q: Annotated[str | None, Query(max_length=80, description="Поиск по имени без учёта регистра.")] = None,
-    include_demo: Annotated[
-        bool, Query(description="Включать демо-пользователей, которые наполняют новые доски примерами.")
-    ] = True,
 ) -> list[schemas.User]:
-    """Все участники: сначала реальные люди по алфавиту, затем демо-пользователи.
+    """Все участники доски, по алфавиту.
 
     В списке есть и однокурсники, которые ещё не обращались к API. Они показываются с именем и
     аватаром с платформы курса, пока не изменят профиль здесь.
@@ -115,9 +112,7 @@ def list_users(
     query = select(models.User).where(models.User.stream_id == actor.stream_id)
     if q:
         query = query.where(models.User.name.icontains(q, autoescape=True))
-    if not include_demo:
-        query = query.where(models.User.is_demo.is_(False))
-    users = db.scalars(query.order_by(models.User.is_demo, func.lower(models.User.name))).all()
+    users = db.scalars(query.order_by(func.lower(models.User.name), models.User.id)).all()
     return [services.user_schema(user, actor) for user in users]
 
 

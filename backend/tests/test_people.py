@@ -97,15 +97,12 @@ def test_people_list_includes_classmates_who_never_called(client, platform, alic
     quiet = platform.add("quiet", STREAM_A, code="26F")
 
     people = client.get("/api/users", headers=alice.headers).json()
-    quiet_row = next(p for p in people if p["name"] == "Quiet Student")
-    assert "email" not in quiet_row
-    demo_flags = [p["is_demo"] for p in people]
-    assert demo_flags == sorted(demo_flags)  # real people first
+    assert [p["name"] for p in people] == ["Alice Student", "Quiet Student"]  # by name
+    assert "email" not in people[1]
+    found = client.get("/api/users?q=qui", headers=alice.headers).json()
+    assert [p["name"] for p in found] == ["Quiet Student"]
 
-    real_only = client.get("/api/users?include_demo=false", headers=alice.headers).json()
-    assert real_only and not any(p["is_demo"] for p in real_only)
-
-    assert me(client, quiet)["id"] == quiet_row["id"]  # the provisioned row is reused
+    assert me(client, quiet)["id"] == people[1]["id"]  # the provisioned row is reused
 
 
 def test_user_detail_has_activity_counters(client, alice, bob):

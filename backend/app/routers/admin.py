@@ -18,7 +18,7 @@ def _settings_schema(board: models.BoardSettings) -> schemas.BoardSettings:
     return schemas.BoardSettings(
         accept_threshold=board.accept_threshold,
         reject_threshold=board.reject_threshold,
-        updated_at=board.updated_at,
+        updated_at=services.unix(board.updated_at),
     )
 
 
@@ -58,7 +58,7 @@ def _count_by_stream(db: DbSession, model: Any, *conditions: Any) -> dict[uuid.U
 @router.get("/streams", response_model=list[schemas.AdminStream], summary="Потоки и их активность", responses=ADMIN_ERRORS)
 def list_streams(db: DbSession) -> list[schemas.AdminStream]:
     """Все потоки, которые обращались к API, от старых к новым, со счётчиками активности."""
-    members = _count_by_stream(db, models.User, models.User.is_demo.is_(False))
+    members = _count_by_stream(db, models.User)
     cards = _count_by_stream(db, models.Card)
     comments = _count_by_stream(db, models.Comment)
     votes = _count_by_stream(db, models.Vote)
@@ -73,7 +73,7 @@ def list_streams(db: DbSession) -> list[schemas.AdminStream]:
             cards_count=cards.get(stream.id, 0),
             comments_count=comments.get(stream.id, 0),
             votes_count=votes.get(stream.id, 0),
-            first_seen_at=stream.created_at,
+            first_seen_at=services.unix(stream.created_at),
         )
         for stream in streams
     ]

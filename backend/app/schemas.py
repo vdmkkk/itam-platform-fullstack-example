@@ -10,11 +10,12 @@ Conventions:
   schema. It is always present in the JSON, possibly as `null`.
 - Update models give non-nullable fields `Field(default=None)`. Such a field
   may be omitted, but an explicit `null` is rejected.
+- Every moment in time is whole Unix seconds (UTC), an `int`. The services
+  convert the database's timestamps.
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import re
 import uuid
 from typing import Any
@@ -33,7 +34,7 @@ TELEGRAM_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
 UNIX_TIME_MAX = 4_102_444_799
 
 EXAMPLE_UUID = "3f8e9c1a-5b2d-4e7f-9a61-2c4b8d0e1f23"
-EXAMPLE_TIME = "2026-09-10T12:00:00Z"
+EXAMPLE_TIME = 1_789_041_600  # 2026-09-10 12:00 UTC
 EXAMPLE_UNIX_TIME = 1_791_648_000  # 2026-10-10 19:00 Moscow time
 
 
@@ -201,16 +202,9 @@ class User(BaseModel):
     telegram: str | None = Field(
         description="Имя пользователя в Telegram без `@`.", examples=["anya_codes"]
     )
-    is_demo: bool = Field(
-        description=(
-            "`true` у демо-пользователей, которые наполняют каждую новую доску примерами. Это не "
-            "настоящие однокурсники."
-        ),
-        examples=[False],
-    )
     is_me: bool = Field(description="`true`, если это вы.", examples=[False])
-    created_at: dt.datetime = Field(
-        description="Когда пользователь впервые появился в этом API (ISO-8601, UTC).",
+    created_at: int = Field(
+        description="Когда пользователь впервые появился в этом API: Unix-время в секундах.",
         examples=[EXAMPLE_TIME],
     )
 
@@ -245,11 +239,13 @@ class Profile(BaseModel):
     bio: str | None = Field(description="О себе.", examples=["Учу React по вечерам."])
     telegram: str | None = Field(description="Имя пользователя в Telegram без `@`.", examples=["anya_codes"])
     stream: Stream = Field(description="Поток, в котором вы учитесь.")
-    created_at: dt.datetime = Field(
-        description="Когда вы впервые обратились к этому API (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
+    created_at: int = Field(
+        description="Когда вы впервые обратились к этому API: Unix-время в секундах.",
+        examples=[EXAMPLE_TIME],
     )
-    updated_at: dt.datetime = Field(
-        description="Когда профиль последний раз меняли (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
+    updated_at: int = Field(
+        description="Когда профиль последний раз меняли: Unix-время в секундах.",
+        examples=[EXAMPLE_TIME],
     )
 
 
@@ -331,11 +327,11 @@ class Comment(BaseModel):
         description="`true`, если его написали вы, — значит, вы можете его изменить или удалить.",
         examples=[False],
     )
-    created_at: dt.datetime = Field(description="Когда опубликован (ISO-8601, UTC).", examples=[EXAMPLE_TIME])
-    updated_at: dt.datetime = Field(
+    created_at: int = Field(description="Когда опубликован: Unix-время в секундах.", examples=[EXAMPLE_TIME])
+    updated_at: int = Field(
         description=(
-            "Когда последний раз изменён (ISO-8601, UTC). Равен `created_at`, если комментарий "
-            "не редактировали."
+            "Когда последний раз изменён: Unix-время в секундах. Равен `created_at`, если "
+            "комментарий не редактировали."
         ),
         examples=[EXAMPLE_TIME],
     )
@@ -458,11 +454,11 @@ class Card(BaseModel):
         examples=[False],
     )
     author: User = Field(description="Кто опубликовал карточку.")
-    created_at: dt.datetime = Field(description="Когда опубликована (ISO-8601, UTC).", examples=[EXAMPLE_TIME])
-    updated_at: dt.datetime = Field(
+    created_at: int = Field(description="Когда опубликована: Unix-время в секундах.", examples=[EXAMPLE_TIME])
+    updated_at: int = Field(
         description=(
-            "Когда последний раз меняли её содержимое (ISO-8601, UTC). Голоса и комментарии его "
-            "не меняют."
+            "Когда последний раз меняли её содержимое: Unix-время в секундах. Голоса и "
+            "комментарии его не меняют."
         ),
         examples=[EXAMPLE_TIME],
     )
@@ -592,10 +588,7 @@ class Board(BaseModel):
         description="Все пять колонок в порядке отображения: event, idea, question, accepted, rejected."
     )
     cards_count: int = Field(description="Всего карточек на доске.", examples=[8])
-    members_count: int = Field(
-        description="Сколько реальных участников знает этот API (без демо-пользователей).",
-        examples=[17],
-    )
+    members_count: int = Field(description="Сколько участников доски знает этот API.", examples=[17])
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +601,9 @@ class BoardSettings(BaseModel):
 
     accept_threshold: int = Field(description="`score >= accept_threshold` — карточка принята.", examples=[5])
     reject_threshold: int = Field(description="`score <= -reject_threshold` — карточка отклонена.", examples=[5])
-    updated_at: dt.datetime = Field(description="Когда их последний раз меняли.", examples=[EXAMPLE_TIME])
+    updated_at: int = Field(
+        description="Когда их последний раз меняли: Unix-время в секундах.", examples=[EXAMPLE_TIME]
+    )
 
 
 class BoardSettingsUpdate(RequestBody):
@@ -631,11 +626,14 @@ class AdminStream(BaseModel):
     code: str | None = Field(description="Код потока.", examples=["26F"])
     title: str | None = Field(description="Название потока.", examples=["Осенний поток 2026"])
     name: str = Field(description="`title` или `code`.", examples=["Осенний поток 2026"])
-    members_count: int = Field(description="Реальные люди (без демо-пользователей).", examples=[17])
-    cards_count: int = Field(description="Карточки, включая демо.", examples=[42])
+    members_count: int = Field(description="Участники.", examples=[17])
+    cards_count: int = Field(description="Карточки.", examples=[42])
     comments_count: int = Field(description="Комментарии.", examples=[120])
     votes_count: int = Field(description="Голоса.", examples=[300])
-    first_seen_at: dt.datetime = Field(description="Когда появился первый студент потока.")
+    first_seen_at: int = Field(
+        description="Когда появился первый студент потока: Unix-время в секундах.",
+        examples=[EXAMPLE_TIME],
+    )
 
 
 class Health(BaseModel):

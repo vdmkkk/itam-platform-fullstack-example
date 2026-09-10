@@ -1,31 +1,24 @@
-"""The board: seeding, cards, votes and thresholds (acceptance criterion 10 included)."""
+"""The board: cards, votes and thresholds."""
 
 from __future__ import annotations
 
-from app import seed
+import time
+
 from conftest import ADMIN_HEADERS, STREAM_A
 from helpers import create_card, me, vote
 
 COLUMNS = ["event", "idea", "question", "accepted", "rejected"]
 
 
-def test_a_new_stream_starts_with_a_demo_board(client, alice):
-    cards = client.get("/api/cards", headers=alice.headers).json()
-    assert len(cards) == len(seed.CARDS)
-    assert {card["column"] for card in cards} == set(COLUMNS)
-    assert all(card["author"]["is_demo"] for card in cards)
-    dates = [card["date"] for card in cards if card["date"] is not None]
-    assert dates and all(isinstance(date, int) for date in dates)
+def test_a_new_board_is_empty(client, alice):
+    assert client.get("/api/cards", headers=alice.headers).json() == []
 
     board = client.get("/api/board", headers=alice.headers).json()
     assert [column["id"] for column in board["columns"]] == COLUMNS
-    assert sum(column["cards_count"] for column in board["columns"]) == board["cards_count"] == len(cards)
+    assert [column["title"] for column in board["columns"]] == ["События", "Идеи", "Вопросы", "Принято", "Отклонено"]
+    assert board["cards_count"] == 0 and not any(column["cards_count"] for column in board["columns"])
     assert (board["accept_threshold"], board["reject_threshold"]) == (5, 5)
-
-
-def test_the_demo_board_is_seeded_once_per_stream(client, alice, bob):
-    me(client, alice)
-    assert len(client.get("/api/cards", headers=bob.headers).json()) == len(seed.CARDS)
+    assert board["members_count"] == 1
 
 
 def test_create_card_returns_the_full_card(client, alice):
@@ -44,6 +37,8 @@ def test_create_card_returns_the_full_card(client, alice):
     assert (card["score"], card["votes_count"], card["comments_count"], card["my_vote"]) == (0, 0, 0, None)
     assert (card["votes_to_accept"], card["votes_to_reject"]) == (5, 5)
     assert card["is_mine"] and card["author"]["is_me"]
+    assert isinstance(card["created_at"], int) and card["created_at"] == card["updated_at"]
+    assert abs(card["created_at"] - time.time()) < 300
 
 
 def test_card_validation_errors_point_at_fields(client, alice):
@@ -162,31 +157,36 @@ def test_thresholds_move_cards_but_keep_their_type(client, platform, alice, bob)
     assert (rejected["column"], rejected["is_rejected"], rejected["score"]) == ("rejected", True, -2)
 
 
-def test_lowering_a_threshold_reclassifies_existing_cards(client, alice):
-    cards = client.get("/api/cards", headers=alice.headers).json()
-    token_question = next(c for c in cards if c["title"] == "Где взять свой токен для API?")
-    assert (token_question["score"], token_question["column"]) == (4, "question")
+def test_lowering_a_threshold_reclassifies_existing_cards(client, alice, bob):
+    card_id = create_card(client, alice, type="question")["id"]
+    assert vote(client, bob, card_id, "up")["column"] == "question"
 
-    client.patch("/api/admin/settings", json={"accept_threshold": 4}, headers=ADMIN_HEADERS)
-    again = client.get(f"/api/cards/{token_question['id']}", headers=alice.headers).json()
-    assert again["column"] == "accepted"
+    client.patch("/api/admin/settings", json={"accept_threshold": 1}, headers=ADMIN_HEADERS)
+    again = client.get(f"/api/cards/{card_id}", headers=alice.headers).json()
+    assert (again["column"], again["is_accepted"], again["type"]) == ("accepted", True, "question")
 
 
 def test_card_filters_and_sorting(client, alice, bob):
+    client.patch("/api/admin/settings", json={"accept_threshold": 1}, headers=ADMIN_HEADERS)
+    popular = create_card(client, bob, title="Popular idea")
+    vote(client, alice, popular["id"], "up")
     mine = create_card(client, alice, title="Unique needle", type="event")
     alice_id = me(client, alice)["id"]
 
     def listed(query):
         response = client.get(f"/api/cards{query}", headers=bob.headers)
         assert response.status_code == 200, response.text
-        return response.json()
+        return [card["id"] for card in response.json()]
 
-    assert [c["id"] for c in listed(f"?author_id={alice_id}")] == [mine["id"]]
-    assert [c["id"] for c in listed("?q=NEEDLE")] == [mine["id"]]
-    accepted = listed("?column=accepted")
-    assert accepted and all(c["column"] == "accepted" for c in accepted)
-    scores = [c["score"] for c in listed("?sort=top")]
-    assert scores == sorted(scores, reverse=True)
-    assert listed("")[0]["id"] == mine["id"]
-    assert listed("?sort=old")[-1]["id"] == mine["id"]
+    assert listed(f"?author_id={alice_id}") == [mine["id"]]
+    assert listed("?q=NEEDLE") == [mine["id"]]
+    assert listed("?type=event") == [mine["id"]]
+    assert listed("?column=accepted") == [popular["id"]]
+    assert listed("?sort=top") == [popular["id"], mine["id"]]
+    assert listed("") == [mine["id"], popular["id"]]  # newest first
+    assert listed("?sort=old") == [popular["id"], mine["id"]]
     assert client.get("/api/cards?sort=best", headers=bob.headers).status_code == 422
+
+    board = client.get("/api/board", headers=bob.headers).json()
+    counts = {column["id"]: column["cards_count"] for column in board["columns"]}
+    assert counts == {"event": 1, "idea": 0, "question": 0, "accepted": 1, "rejected": 0}

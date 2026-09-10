@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import seed
 from conftest import ADMIN_HEADERS
 from helpers import comment, create_card, me
 
@@ -30,12 +29,14 @@ def test_thresholds_are_validated(client):
 def test_streams_overview(client, alice, bob, carol, nora):
     for student in (alice, bob, carol, nora):
         me(client, student)
+    create_card(client, alice)
 
     streams = {s["code"]: s for s in client.get("/api/admin/streams", headers=ADMIN_HEADERS).json()}
     assert streams["26F"]["members_count"] == 2
     assert streams["27S"]["members_count"] == 1
     assert (streams[None]["id"], streams[None]["name"]) == (None, "Без потока")
-    assert all(s["cards_count"] == len(seed.CARDS) for s in streams.values())
+    assert [streams[code]["cards_count"] for code in ("26F", "27S", None)] == [1, 0, 0]
+    assert isinstance(streams["26F"]["first_seen_at"], int)
 
 
 def test_admin_can_moderate_any_stream(client, alice, bob):

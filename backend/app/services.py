@@ -7,6 +7,7 @@ to probe other streams.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import uuid
 from collections.abc import Sequence
@@ -22,7 +23,6 @@ from app import models, schemas
 from app.config import Settings
 from app.enums import CardColumn, CardSort, CardType, VoteValue
 from app.identity import PlatformClient, PlatformStream, PlatformUser, RosterThrottle
-from app.seed import seed_stream
 
 logger = logging.getLogger(__name__)
 
@@ -64,19 +64,15 @@ class Actor:
 
 
 def ensure_stream(db: Session, platform_stream: PlatformStream) -> models.Stream:
-    """Return the caller's stream. The first contact creates it and seeds the demo board."""
+    """Return the caller's stream, creating it on first contact. New boards start empty."""
     stream_id = platform_stream.id or models.NO_STREAM_ID
     stream = db.get(models.Stream, stream_id)
     if stream is None:
-        inserted = db.execute(
+        db.execute(
             pg_insert(models.Stream)
             .values(id=stream_id, code=platform_stream.code, title=platform_stream.title)
             .on_conflict_do_nothing(index_elements=["id"])
-            .returning(models.Stream.id)
-        ).scalar_one_or_none()
-        if inserted is not None:
-            # Only the request that created the stream seeds it, even if two race.
-            seed_stream(db, stream_id)
+        )
         db.commit()
         stream = db.get(models.Stream, stream_id)
         if stream is None:  # pragma: no cover - the row was committed just above
@@ -97,7 +93,6 @@ def _new_user_values(stream_id: uuid.UUID, member: PlatformUser) -> dict[str, An
         "id": uuid.uuid4(),
         "stream_id": stream_id,
         "platform_user_id": member.id,
-        "is_demo": False,
         "name": member.full_name[:NAME_MAX_LENGTH],
         "email": member.email[:EMAIL_MAX_LENGTH] if member.email else None,
         "avatar_url": member.avatar_url or None,
@@ -143,11 +138,7 @@ def sync_roster(db: Session, actor: Actor, platform: PlatformClient, throttle: R
         return
 
     known = set(
-        db.scalars(
-            select(models.User.platform_user_id).where(
-                models.User.stream_id == stream_id, models.User.platform_user_id.is_not(None)
-            )
-        )
+        db.scalars(select(models.User.platform_user_id).where(models.User.stream_id == stream_id))
     )
     newcomers = [_new_user_values(stream_id, m) for m in members if m.id not in known]
     if newcomers:
@@ -214,15 +205,18 @@ def get_member(db: Session, actor: Actor, user_id: uuid.UUID) -> models.User:
 
 def members_count(db: Session, stream_id: uuid.UUID) -> int:
     return db.scalar(
-        select(func.count())
-        .select_from(models.User)
-        .where(models.User.stream_id == stream_id, models.User.is_demo.is_(False))
+        select(func.count()).select_from(models.User).where(models.User.stream_id == stream_id)
     ) or 0
 
 
 # ---------------------------------------------------------------------------
 # Response builders
 # ---------------------------------------------------------------------------
+
+
+def unix(moment: dt.datetime) -> int:
+    """The API sends every moment in time as whole Unix seconds."""
+    return int(moment.timestamp())
 
 
 def stream_name(stream: models.Stream) -> str:
@@ -247,9 +241,8 @@ def user_schema(user: models.User, actor: Actor) -> schemas.User:
         status=user.status,
         bio=user.bio,
         telegram=user.telegram,
-        is_demo=user.is_demo,
         is_me=user.id == actor.user_id,
-        created_at=user.created_at,
+        created_at=unix(user.created_at),
     )
 
 
@@ -293,8 +286,8 @@ def profile_schema(actor: Actor) -> schemas.Profile:
         bio=user.bio,
         telegram=user.telegram,
         stream=stream_schema(actor.stream),
-        created_at=user.created_at,
-        updated_at=user.updated_at,
+        created_at=unix(user.created_at),
+        updated_at=unix(user.updated_at),
     )
 
 
@@ -305,8 +298,8 @@ def comment_schema(comment: models.Comment, actor: Actor) -> schemas.Comment:
         text=comment.text,
         author=user_schema(comment.author, actor),
         is_mine=comment.author_id == actor.user_id,
-        created_at=comment.created_at,
-        updated_at=comment.updated_at,
+        created_at=unix(comment.created_at),
+        updated_at=unix(comment.updated_at),
     )
 
 
@@ -389,8 +382,8 @@ def card_schema(
         my_vote=my_vote,
         is_mine=card.author_id == actor.user_id,
         author=user_schema(card.author, actor),
-        created_at=card.created_at,
-        updated_at=card.updated_at,
+        created_at=unix(card.created_at),
+        updated_at=unix(card.updated_at),
     )
 
 

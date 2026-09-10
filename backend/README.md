@@ -72,10 +72,9 @@ npx openapi-typescript https://courses.salut.uno/example-backend/frontend-itam/o
 - Ошибки всегда приходят как `{"detail": "понятное сообщение"}`, а ошибки валидации (422) ещё и
   как `errors: [{"field": "title", "message": "..."}]` — удобно подсвечивать поля формы.
 - `204 No Content` (удаление) приходит с пустым телом — не вызывайте `response.json()`.
-- `date` у карточки — число, Unix-время в секундах: показывайте его как `new Date(card.date * 1000)`.
+- Все даты и время (`date`, `created_at`, `updated_at`) — числа, Unix-время в секундах:
+  показывайте их как `new Date(card.created_at * 1000)`.
 - Лимит — 60 запросов в секунду на токен. `useEffect` без массива зависимостей его быстро найдёт.
-- Новая доска сразу заполнена демо-карточками (`author.is_demo: true`), чтобы было что
-  рендерить с первого запроса.
 
 ---
 
@@ -92,6 +91,8 @@ npx openapi-typescript https://courses.salut.uno/example-backend/frontend-itam/o
 - A card has `title` and `type` (required), plus optional `description`, `preview` (an image
   as a string: an http(s) link or a `data:image/...` URI) and `date` (Unix time in seconds,
   an integer; milliseconds are rejected with a hint).
+- Every moment in time the API sends (`date`, `created_at`, `updated_at`, the admin
+  timestamps) is integer Unix seconds.
 - `score = upvotes - downvotes`. Acceptance is computed live, so a card keeps its original
   `type`, `is_accepted` / `is_rejected` are separate flags, and `column` says where to draw it.
 - Anyone in the stream can vote (one vote per card, changeable) and comment (flat comments).
@@ -148,9 +149,10 @@ curl -X PATCH https://courses.salut.uno/example-backend/frontend-itam/api/admin/
   partition (the nil UUID) and never see anyone else.
 - **Local users** are keyed on `(stream_id, platform user id)`, never on email. A student
   moved to another stream starts fresh there, and their old content stays behind.
-- **Seeding.** The first request from a new stream creates it and seeds demo people, cards,
-  votes and comments in the same transaction. `INSERT … ON CONFLICT DO NOTHING` ensures only
-  one racing request seeds.
+- **Streams appear on first contact.** The first request from a new stream creates its row
+  (`INSERT … ON CONFLICT DO NOTHING`, so racing requests are harmless). Boards start empty:
+  the course owner posts sample cards from a student account. This deviates from the master
+  prompt, which asks for seeded demo data (its acceptance criterion 10).
 - **People list.** `GET /api/users` also pulls the stream roster from the platform (at most
   once a minute per stream), so classmates who haven't called the API yet still appear.
 - **Rate limit.** A token bucket of 60 req/s per token returns `429` with `Retry-After`.
