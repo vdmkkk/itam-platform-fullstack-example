@@ -2,8 +2,8 @@
 #
 #   docker compose --env-file .env up --build -d
 #
-# The API binds to loopback only. The platform's edge nginx is its sole public
-# entrance (see nginx-snippet.conf).
+# The API binds to loopback only. Its sole public entrance is the platform's
+# example backends gateway, where `exb` publishes it (see README.md).
 
 name: example_backend_${BACKEND_SLUG:-frontend-itam}
 
