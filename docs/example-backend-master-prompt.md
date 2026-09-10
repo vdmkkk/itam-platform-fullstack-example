@@ -13,8 +13,9 @@ tool, not a product. Your job is the API and its deployment, nothing else.
 ## Your assignment
 
 - **Course topic / domain model:** `[e.g. a Trello clone: boards, lists, cards, comments]`
-- **Backend slug:** `[e.g. react-crash]` — the URL segment and the identifier the platform knows it by
-- **Public base URL:** `[e.g. https://salut.uno/example-backend/react-crash]`
+- **Course slug:** `[e.g. react-crash]`: the platform course whose students use it
+- **Backend slug:** `[e.g. react-crash]`: the URL segment, and the identifier the platform knows the backend by
+- **Public base URL:** `[e.g. https://courses.salut.uno/example-backend/react-crash]`
 - **Platform API URL:** `[e.g. https://courses.salut.uno]`
 
 ## The one idea that shapes everything
@@ -191,27 +192,73 @@ take the API down for a whole cohort. Return 429 with a plain-language `detail`.
 Your stack runs beside the platform on the same host, isolated:
 
 - its own Docker Compose project, its own Postgres, its own volume;
-- the API binds to **loopback only**: `127.0.0.1:{BACKEND_PORT}:8000`;
-- the platform's edge nginx proxies `/{example-backend}/{slug}/` to it.
+- the API binds to **loopback only**: `127.0.0.1:${BACKEND_PORT}:8000`;
+- the platform publishes it at `{origin}/example-backend/{slug}/` through the
+  example backends gateway. You never write or edit any nginx config.
 
-**The path-prefix gotcha.** nginx `proxy_pass` ends with a trailing slash, so it
-strips `/example-backend/{slug}` before your app sees the request. Your app must
-therefore set FastAPI's `root_path="/example-backend/{slug}"` so Swagger and the
-OpenAPI `servers` block re-advertise the prefix. Strip in the proxy, re-advertise
-in the app — set only one and Swagger renders but every "Try it" call 404s.
+**The path-prefix gotcha.** The gateway's `proxy_pass` ends with a trailing
+slash, so it strips `/example-backend/{slug}` before your app sees the request.
+Your app must therefore set FastAPI's `root_path="/example-backend/{slug}"`,
+read from a `ROOT_PATH` env var, so that Swagger and the OpenAPI `servers` block
+re-advertise the prefix. Strip in the proxy, re-advertise in the app. If only
+one of the two is set, Swagger renders but every "Try it out" call 404s.
+
+Your compose file reads the platform wiring from `.env`, and the platform's
+`exb` tool writes it for you: `BACKEND_SLUG`, `BACKEND_PORT`,
+`PLATFORM_API_URL`, `PLATFORM_SERVICE_KEY`, `PUBLIC_BASE_URL`. Set
+`ROOT_PATH: /example-backend/${BACKEND_SLUG}` in the compose file itself.
 
 Deliver:
 
 - `Dockerfile`;
-- `docker-compose.yml` (postgres + api, loopback port, `restart: unless-stopped`);
+- `docker-compose.yml` (postgres + api, `127.0.0.1:${BACKEND_PORT}:8000`,
+  `ROOT_PATH`, `restart: unless-stopped`, a healthcheck on `/health`);
 - `.env.example` documenting every variable;
-- an nginx `location` snippet ready to paste into the edge config;
-- a `README.md` with deploy steps, and a **"Guide for students"** section: the
+- automated tests (see the acceptance criteria);
+- a `README.md` with deploy steps and a **"Guide for students"** section: the
   base URL, the header name, how to get the token from the course page, and two
   or three copy-pasteable `fetch` examples.
 
 Never commit real secrets. `PLATFORM_SERVICE_KEY` lives only in the deployment's
 environment.
+
+## Hosting it on the platform
+
+If you have shell access to the platform host, you deploy it yourself, and you
+can do so safely. Everything goes through one tool, `exb`. It only touches the
+example backends gateway and the platform's example-backend records, never the
+live platform's configuration:
+
+```sh
+git clone <your repo> /root/<repo> && cd /root/<repo>
+cp .env.example .env    # fill in your own secrets, e.g. POSTGRES_PASSWORD
+exb register <backend-slug> --course <course-slug> --env-file /root/<repo>/.env
+docker compose --env-file .env up --build -d
+exb check <backend-slug> --auth-path <an endpoint that needs a token>
+```
+
+`exb register` allocates the port, publishes the route, registers the backend
+(students see it on the course page straight away) and writes the platform
+variables into `.env`. Redeploy after a change with
+`git pull && docker compose --env-file .env up --build -d`.
+
+For end-to-end tests with real tokens, use test students. The platform only
+accepts **student** tokens, so an admin's own token from the course page always
+gets 401:
+
+```sh
+exb test-students <backend-slug> create --count 2     # the same stream
+exb test-students <backend-slug> create --no-stream   # a second, isolated partition
+exb test-students <backend-slug> delete               # always clean up
+```
+
+Your backend treats test students as ordinary users. Test students in a real
+stream appear in that cohort's data until you delete their local rows (their
+emails end in `@example.invalid`), so clean those up after a live run.
+
+Never edit `/root/courses-edge-nginx.conf`, the platform's compose files or
+another backend's stack. If `exb` refuses something, fix the input rather than
+working around the tool. `exb --help` and `exb list` show everything else.
 
 ## Acceptance criteria
 
@@ -230,6 +277,9 @@ Before you call it done, verify:
 9. `/health` returns 200 without auth.
 10. A brand-new student in a brand-new stream sees seeded demo data, not an
     empty list.
+11. Once deployed, `exb check <backend-slug> --auth-path <endpoint>` passes on
+    the host, and a live run with test students confirms 3-6 through the public
+    URL. Delete the test students afterwards.
 
 Write automated tests for 4 and 5 specifically. Cross-stream leakage is the one
 bug that would quietly ruin the exercise, and it is invisible until two cohorts

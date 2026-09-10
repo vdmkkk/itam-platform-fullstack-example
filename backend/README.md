@@ -197,19 +197,19 @@ database itself rejects cross-stream rows.
 ## Deployment
 
 It runs on the platform host (`root@5.42.110.221`) from `/root/itam-platform-fullstack-example`.
+It is published through the platform's example backends gateway by the `exb` host tool (see
+`courses-platform/infra/example-backends/README.md`). Nothing here edits nginx.
 
-First time:
+First time (already done):
 
-1. Register the backend in the platform admin (Course → Бэкенды) with slug `frontend-itam`,
-   base URL `https://courses.salut.uno/example-backend/frontend-itam` and docs URL
-   `…/docs`. Copy the service key; it is shown once.
-2. `cp .env.example .env` in `backend/` and fill it in (service key, random
-   `POSTGRES_PASSWORD` and `ADMIN_TOKEN`).
-3. `docker compose --env-file .env up --build -d`
-4. Paste `nginx-snippet.conf` into the `courses.salut.uno` HTTPS server block of
-   `/root/courses-edge-nginx.conf`, then run
-   `docker exec courses_edge_proxy nginx -t && docker exec courses_edge_proxy nginx -s reload`.
-5. `curl -s -o /dev/null -w '%{http_code}' https://courses.salut.uno/example-backend/frontend-itam/health` returns `200`.
+```sh
+git clone https://github.com/vdmkkk/itam-platform-fullstack-example.git /root/itam-platform-fullstack-example
+cd /root/itam-platform-fullstack-example/backend
+cp .env.example .env   # set POSTGRES_PASSWORD and ADMIN_TOKEN to long random strings
+exb register frontend-itam --course frontend-itam --title "ITAM Board API" --env-file "$PWD/.env"
+docker compose --env-file .env up --build -d
+exb check frontend-itam --auth-path /api/me
+```
 
 Every later deploy:
 
@@ -217,6 +217,14 @@ Every later deploy:
 ssh root@5.42.110.221 'cd /root/itam-platform-fullstack-example && git pull --ff-only && cd backend && docker compose --env-file .env up --build -d'
 ```
 
-Migrations run on container start (`alembic upgrade head`). If the service key is rotated in
-the admin app, update `PLATFORM_SERVICE_KEY` in `.env` and re-run `up -d` straight away:
-until then every student request gets a 500.
+Useful on the host:
+
+- `exb list`
+- `exb check frontend-itam --auth-path /api/me`
+- `exb test-students frontend-itam create --count 2`, then `... delete` when done: real
+  student tokens for live tests. An admin's own token is always rejected.
+- `exb rotate-key frontend-itam --env-file /root/itam-platform-fullstack-example/backend/.env`,
+  then `docker compose --env-file .env up -d` right away. Until the restart, every student
+  request gets a 500.
+
+Migrations run on container start (`alembic upgrade head`).
