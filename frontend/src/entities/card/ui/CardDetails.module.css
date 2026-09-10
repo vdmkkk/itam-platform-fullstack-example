@@ -1,0 +1,61 @@
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.accepted {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.rejected {
+  color: #4b5563;
+  background: #e5e7eb;
+}
+
+.author {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.image {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.date {
+  margin: 0;
+  font-weight: 500;
+}
+
+.description {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

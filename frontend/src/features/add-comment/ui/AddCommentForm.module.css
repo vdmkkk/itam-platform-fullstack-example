@@ -1,0 +1,17 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.form textarea {
+  min-height: 72px;
+}
+
+.error {
+  align-self: stretch;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--danger);
+}

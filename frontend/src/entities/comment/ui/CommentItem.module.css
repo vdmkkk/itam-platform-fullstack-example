@@ -1,0 +1,36 @@
+.comment {
+  display: flex;
+  gap: 12px;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.author {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.time {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.actions {
+  margin-left: auto;
+}
+
+.text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

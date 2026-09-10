@@ -1,0 +1,70 @@
+.board {
+  display: grid;
+  grid-auto-columns: minmax(260px, 1fr);
+  grid-auto-flow: column;
+  gap: 16px;
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+  padding: 12px;
+  border-top: 4px solid var(--column-color);
+  border-radius: var(--radius);
+  background: var(--column);
+}
+
+.column[data-column='event'] {
+  --column-color: #0284c7;
+}
+
+.column[data-column='idea'] {
+  --column-color: #d97706;
+}
+
+.column[data-column='question'] {
+  --column-color: #7c3aed;
+}
+
+.column[data-column='accepted'] {
+  --column-color: #16a34a;
+}
+
+.column[data-column='rejected'] {
+  --column-color: #9ca3af;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9375rem;
+}
+
+.count {
+  min-width: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty {
+  margin: 0;
+  padding: 16px 0;
+  font-size: 0.875rem;
+  text-align: center;
+  color: var(--muted);
+}

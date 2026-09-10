@@ -1,0 +1,24 @@
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--badge-color);
+  background: var(--badge-bg);
+}
+
+.event {
+  --badge-bg: #e0f2fe;
+  --badge-color: #0369a1;
+}
+
+.idea {
+  --badge-bg: #fef3c7;
+  --badge-color: #b45309;
+}
+
+.question {
+  --badge-bg: #ede9fe;
+  --badge-color: #6d28d9;
+}
