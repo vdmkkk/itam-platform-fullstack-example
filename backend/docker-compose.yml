@@ -1,0 +1,61 @@
+# The ITAM Board example backend: its own Postgres and API, isolated from the platform.
+#
+#   docker compose --env-file .env up --build -d
+#
+# The API binds to loopback only. The platform's edge nginx is its sole public
+# entrance (see nginx-snippet.conf).
+
+name: example_backend_${BACKEND_SLUG:-frontend-itam}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: example_backend_${BACKEND_SLUG:-frontend-itam}_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-example_backend}
+      POSTGRES_USER: ${POSTGRES_USER:-example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - backend_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    container_name: example_backend_${BACKEND_SLUG:-frontend-itam}_api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # --- platform identity bridge ---
+      PLATFORM_API_URL: ${PLATFORM_API_URL:?set PLATFORM_API_URL}
+      PLATFORM_SERVICE_KEY: ${PLATFORM_SERVICE_KEY:?set PLATFORM_SERVICE_KEY}
+      BACKEND_SLUG: ${BACKEND_SLUG:?set BACKEND_SLUG}
+      # Mounted under a path prefix, so the app must re-advertise it in its docs.
+      ROOT_PATH: /example-backend/${BACKEND_SLUG}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # --- course team ---
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      DEFAULT_ACCEPT_THRESHOLD: ${DEFAULT_ACCEPT_THRESHOLD:-5}
+      DEFAULT_REJECT_THRESHOLD: ${DEFAULT_REJECT_THRESHOLD:-5}
+      # --- own storage ---
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-example}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-example_backend}
+    ports:
+      # Loopback only: the edge proxy is the sole public entrance.
+      - "127.0.0.1:${BACKEND_PORT:?set BACKEND_PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  backend_postgres_data:
