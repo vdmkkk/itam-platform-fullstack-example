@@ -29,12 +29,16 @@ logger = logging.getLogger(__name__)
 NAME_MAX_LENGTH = 80
 EMAIL_MAX_LENGTH = 320
 
+CARD_NOT_FOUND = "Карточка не найдена. Возможно, её удалили."
+COMMENT_NOT_FOUND = "Комментарий не найден. Возможно, его удалили."
+USER_NOT_FOUND = "Пользователь не найден."
+
 COLUMNS: tuple[tuple[CardColumn, str, str], ...] = (
-    (CardColumn.event, "Events", "Meetups, deadlines, hackathons: things that happen on a date."),
-    (CardColumn.idea, "Ideas", "Proposals for the stream to vote on."),
-    (CardColumn.question, "Questions", "Things someone wants answered."),
-    (CardColumn.accepted, "Accepted", "Cards whose score reached the accept threshold."),
-    (CardColumn.rejected, "Rejected", "Cards whose score fell to minus the reject threshold."),
+    (CardColumn.event, "События", "Встречи, дедлайны, хакатоны: то, что происходит в определённый день."),
+    (CardColumn.idea, "Идеи", "Предложения, за которые голосуют участники."),
+    (CardColumn.question, "Вопросы", "То, на что кто-то хочет получить ответ."),
+    (CardColumn.accepted, "Принято", "Карточки, чей счёт дошёл до порога принятия."),
+    (CardColumn.rejected, "Отклонено", "Карточки, чей счёт опустился до минус порога отклонения."),
 )
 
 
@@ -184,7 +188,7 @@ def get_card(db: Session, actor: Actor, card_id: uuid.UUID) -> models.Card:
         select(models.Card).where(models.Card.id == card_id, models.Card.stream_id == actor.stream_id)
     )
     if card is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Card not found. It may have been deleted.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=CARD_NOT_FOUND)
     return card
 
 
@@ -195,9 +199,7 @@ def get_comment(db: Session, actor: Actor, comment_id: uuid.UUID) -> models.Comm
         )
     )
     if comment is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Comment not found. It may have been deleted."
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=COMMENT_NOT_FOUND)
     return comment
 
 
@@ -206,7 +208,7 @@ def get_member(db: Session, actor: Actor, user_id: uuid.UUID) -> models.User:
         select(models.User).where(models.User.id == user_id, models.User.stream_id == actor.stream_id)
     )
     if user is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found in your stream.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=USER_NOT_FOUND)
     return user
 
 
@@ -224,7 +226,7 @@ def members_count(db: Session, stream_id: uuid.UUID) -> int:
 
 
 def stream_name(stream: models.Stream) -> str:
-    fallback = "No stream" if stream.id == models.NO_STREAM_ID else "Stream"
+    fallback = "Без потока" if stream.id == models.NO_STREAM_ID else "Поток"
     return stream.title or stream.code or fallback
 
 

@@ -30,7 +30,11 @@ logger = logging.getLogger(__name__)
 TOKEN_HEADER = "X-Course-Token"
 TOKEN_PREFIX = "exb_"
 TOKEN_MAX_LENGTH = 200
-TOKEN_PAGE_HINT = "Copy your token from the course page (tab «API проекта»)."
+TOKEN_PAGE_HINT = "Скопируйте токен на странице курса (вкладка «API проекта»)."
+MISSING_TOKEN = (
+    f"Нет заголовка {TOKEN_HEADER}. {TOKEN_PAGE_HINT} Передавайте его в каждом запросе. "
+    "В Swagger нажмите Authorize."
+)
 
 
 @dataclass(frozen=True)
@@ -54,7 +58,7 @@ class PlatformUser:
         """The best display name the platform gave us."""
         joined = " ".join(part for part in (self.name, self.surname) if part)
         local_part = (self.email or "").split("@")[0]
-        return (self.display_name or joined or local_part or "Student").strip()
+        return (self.display_name or joined or local_part or "Студент").strip()
 
 
 @dataclass(frozen=True)
@@ -71,8 +75,8 @@ def invalid_token() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=(
-            "Your course token is not valid: it may have been reset, or you no longer have "
-            f"access to the course. {TOKEN_PAGE_HINT}"
+            "Токен курса недействителен: возможно, его сбросили или у вас больше нет доступа "
+            f"к курсу. {TOKEN_PAGE_HINT}"
         ),
     )
 
@@ -81,8 +85,8 @@ def platform_unavailable() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=(
-            "The course platform is not responding, so we can't check your token right now. "
-            "Please try again in a minute."
+            "Платформа курса не отвечает, поэтому сейчас не получается проверить токен. "
+            "Попробуйте через минуту."
         ),
     )
 
@@ -91,8 +95,8 @@ def platform_misconfigured() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=(
-            "The board API is misconfigured on the server: the course platform rejected its "
-            "service key. Your token is fine; please tell the course team."
+            "API доски неправильно настроен на сервере: платформа курса отклонила его сервисный "
+            "ключ. С вашим токеном всё в порядке, сообщите команде курса."
         ),
     )
 
@@ -186,7 +190,7 @@ class PlatformClient:
         logger.error("Unexpected course platform response HTTP %s: %s", code, response.text[:500])
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The course platform gave an unexpected answer. Please tell the course team.",
+            detail="Платформа курса ответила что-то неожиданное. Сообщите команде курса.",
         )
 
 

@@ -34,7 +34,7 @@ def test_streams_overview(client, alice, bob, carol, nora):
     streams = {s["code"]: s for s in client.get("/api/admin/streams", headers=ADMIN_HEADERS).json()}
     assert streams["26F"]["members_count"] == 2
     assert streams["27S"]["members_count"] == 1
-    assert (streams[None]["id"], streams[None]["name"]) == (None, "No stream")
+    assert (streams[None]["id"], streams[None]["name"]) == (None, "Без потока")
     assert all(s["cards_count"] == len(seed.CARDS) for s in streams.values())
 
 

@@ -11,20 +11,22 @@ from fastapi import APIRouter, HTTPException, Path, Response, status
 from app import schemas, services
 from app.deps import CurrentActor, DbSession
 from app.docs import AUTH_ERRORS, VALIDATION_ERROR, forbidden, not_found
+from app.services import COMMENT_NOT_FOUND
 
 router = APIRouter(tags=["Comments"])
 
-CommentId = Annotated[uuid.UUID, Path(description="Comment id.")]
-COMMENT_NOT_FOUND = "Comment not found. It may have been deleted."
+CommentId = Annotated[uuid.UUID, Path(description="Id комментария.")]
+ONLY_AUTHOR_EDITS = "Изменить комментарий может только его автор."
+ONLY_AUTHOR_DELETES = "Удалить комментарий может только его автор."
 
 
 @router.patch(
     "/comments/{comment_id}",
     response_model=schemas.Comment,
-    summary="Edit your comment",
+    summary="Изменить свой комментарий",
     responses={
         **AUTH_ERRORS,
-        403: forbidden("Only the author can edit this comment."),
+        403: forbidden(ONLY_AUTHOR_EDITS),
         404: not_found(COMMENT_NOT_FOUND),
         422: VALIDATION_ERROR,
     },
@@ -32,11 +34,11 @@ COMMENT_NOT_FOUND = "Comment not found. It may have been deleted."
 def update_comment(
     comment_id: CommentId, body: schemas.CommentUpdate, actor: CurrentActor, db: DbSession
 ) -> schemas.Comment:
-    """Replace the text of **your own** comment. Its `updated_at` changes, so you can show
-    "(edited)" when `updated_at` differs from `created_at`."""
+    """Заменяет текст **вашего** комментария. Его `updated_at` меняется, так что можно
+    показывать «(изменено)», когда `updated_at` отличается от `created_at`."""
     comment = services.get_comment(db, actor, comment_id)
     if comment.author_id != actor.user_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only the author can edit this comment.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ONLY_AUTHOR_EDITS)
     comment.text = body.text
     db.commit()
     return services.comment_schema(comment, actor)
@@ -46,18 +48,18 @@ def update_comment(
     "/comments/{comment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
-    summary="Delete your comment",
+    summary="Удалить свой комментарий",
     responses={
         **AUTH_ERRORS,
-        403: forbidden("Only the author can delete this comment."),
+        403: forbidden(ONLY_AUTHOR_DELETES),
         404: not_found(COMMENT_NOT_FOUND),
     },
 )
 def delete_comment(comment_id: CommentId, actor: CurrentActor, db: DbSession) -> Response:
-    """Delete **your own** comment. It answers `204 No Content` with an empty body."""
+    """Удаляет **ваш** комментарий. Ответ — `204 No Content` с пустым телом."""
     comment = services.get_comment(db, actor, comment_id)
     if comment.author_id != actor.user_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only the author can delete this comment.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ONLY_AUTHOR_DELETES)
     db.delete(comment)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

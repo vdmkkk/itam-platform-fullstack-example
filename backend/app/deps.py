@@ -12,17 +12,29 @@ from sqlalchemy.orm import Session
 
 from app import models, services
 from app.db import get_db
-from app.identity import TOKEN_HEADER, TOKEN_MAX_LENGTH, TOKEN_PAGE_HINT, TOKEN_PREFIX, hash_token
+from app.identity import (
+    MISSING_TOKEN,
+    TOKEN_HEADER,
+    TOKEN_MAX_LENGTH,
+    TOKEN_PAGE_HINT,
+    TOKEN_PREFIX,
+    hash_token,
+)
+from app.ratelimit import rate_limit_detail
 from app.services import Actor
 
 ADMIN_HEADER = "X-Admin-Token"
+ADMIN_DISABLED = "Админский API выключен: на сервере не задан ADMIN_TOKEN."
+ADMIN_MISSING = f"Нет заголовка {ADMIN_HEADER}."
+ADMIN_WRONG = "Неверный админский токен."
 
 course_token_header = APIKeyHeader(
     name=TOKEN_HEADER,
     scheme_name="CourseToken",
     description=(
-        "Your personal course token (`exb_...`) from the course page, tab «API проекта». "
-        "Click **Authorize**, paste it, and every *Try it out* request will carry it."
+        "Ваш личный токен курса (`exb_...`) со страницы курса, вкладка «API проекта». "
+        "Нажмите **Authorize**, вставьте его, и каждый запрос через *Try it out* будет "
+        "отправляться с ним."
     ),
     auto_error=False,
 )
@@ -30,7 +42,7 @@ course_token_header = APIKeyHeader(
 admin_token_header = APIKeyHeader(
     name=ADMIN_HEADER,
     scheme_name="AdminToken",
-    description="Course-team token for the `/api/admin` endpoints. Students don't need it.",
+    description="Токен команды курса для эндпоинтов `/api/admin`. Студентам он не нужен.",
     auto_error=False,
 )
 
@@ -54,17 +66,14 @@ def get_actor(
     token = _clean_token(raw_token)
     if not token:
         if request.headers.get("authorization"):
-            detail = f"Send your course token in the {TOKEN_HEADER} header, not in Authorization."
+            detail = f"Передайте токен курса в заголовке {TOKEN_HEADER}, а не в Authorization."
         else:
-            detail = (
-                f"Missing {TOKEN_HEADER} header. {TOKEN_PAGE_HINT} Send it with every request. "
-                "In Swagger, click Authorize."
-            )
+            detail = MISSING_TOKEN
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
     if not token.startswith(TOKEN_PREFIX) or len(token) > TOKEN_MAX_LENGTH:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"This doesn't look like a course token: tokens start with {TOKEN_PREFIX}. {TOKEN_PAGE_HINT}",
+            detail=f"Это не похоже на токен курса: токены начинаются с {TOKEN_PREFIX}. {TOKEN_PAGE_HINT}",
         )
 
     state = request.app.state
@@ -72,10 +81,7 @@ def get_actor(
     if retry_after is not None:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"Too many requests: the limit is {state.settings.rate_limit_per_second:g} per "
-                "second per token. Is a useEffect re-running in a loop? Check its dependency array."
-            ),
+            detail=rate_limit_detail(state.settings.rate_limit_per_second),
             headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
         )
 
@@ -101,13 +107,8 @@ def require_admin(
 ) -> None:
     expected: str = request.app.state.settings.admin_token
     if not expected:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The admin API is disabled: ADMIN_TOKEN is not configured on the server.",
-        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=ADMIN_DISABLED)
     if not raw_token or not raw_token.strip():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Missing {ADMIN_HEADER} header."
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ADMIN_MISSING)
     if not hmac.compare_digest(raw_token.strip().encode(), expected.encode()):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wrong admin token.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ADMIN_WRONG)

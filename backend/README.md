@@ -41,11 +41,15 @@ const cards = await fetch(`${API_URL}/api/cards`, {
   headers: { "X-Course-Token": TOKEN },
 }).then((response) => response.json());
 
-// 2. Новая карточка (обязательны только title и type)
+// 2. Новая карточка (обязательны только title и type; date — Unix-время в секундах)
 const created = await fetch(`${API_URL}/api/cards`, {
   method: "POST",
   headers: { "X-Course-Token": TOKEN, "Content-Type": "application/json" },
-  body: JSON.stringify({ title: "Сходить на хакатон", type: "event", date: "2026-10-01" }),
+  body: JSON.stringify({
+    title: "Сходить на хакатон",
+    type: "event",
+    date: Math.floor(new Date("2026-10-10T19:00").getTime() / 1000),
+  }),
 }).then((response) => response.json());
 
 // 3. Голос за чужую карточку (за свою нельзя — сервер ответит 403)
@@ -68,9 +72,10 @@ npx openapi-typescript https://courses.salut.uno/example-backend/frontend-itam/o
 - Ошибки всегда приходят как `{"detail": "понятное сообщение"}`, а ошибки валидации (422) ещё и
   как `errors: [{"field": "title", "message": "..."}]` — удобно подсвечивать поля формы.
 - `204 No Content` (удаление) приходит с пустым телом — не вызывайте `response.json()`.
+- `date` у карточки — число, Unix-время в секундах: показывайте его как `new Date(card.date * 1000)`.
 - Лимит — 60 запросов в секунду на токен. `useEffect` без массива зависимостей его быстро найдёт.
-- Вы видите только свой поток. У нового потока доска сразу заполнена демо-карточками
-  (`author.is_demo: true`), чтобы было что рендерить с первого запроса.
+- Новая доска сразу заполнена демо-карточками (`author.is_demo: true`), чтобы было что
+  рендерить с первого запроса.
 
 ---
 
@@ -85,7 +90,8 @@ npx openapi-typescript https://courses.salut.uno/example-backend/frontend-itam/o
 | `rejected` | `score <= -reject_threshold`, whatever its type        |
 
 - A card has `title` and `type` (required), plus optional `description`, `preview` (an image
-  as a string: an http(s) link or a `data:image/...` URI) and `date` (`YYYY-MM-DD`).
+  as a string: an http(s) link or a `data:image/...` URI) and `date` (Unix time in seconds,
+  an integer; milliseconds are rejected with a hint).
 - `score = upvotes - downvotes`. Acceptance is computed live, so a card keeps its original
   `type`, `is_accepted` / `is_rejected` are separate flags, and `column` says where to draw it.
 - Anyone in the stream can vote (one vote per card, changeable) and comment (flat comments).
@@ -151,6 +157,10 @@ curl -X PATCH https://courses.salut.uno/example-backend/frontend-itam/api/admin/
 - **Errors** are always `{"detail": "sentence"}`. 422 responses add `errors: [{field, message}]`.
   Unhandled exceptions become JSON 500s inside the CORS middleware, so browsers see the real
   error instead of a CORS failure.
+- **Russian.** Everything students read is in Russian: Swagger (intro, descriptions, examples),
+  error messages (pydantic's included, translated in `app/errors.py`) and column titles. Code,
+  tag names and schema names stay English, because codegen turns them into identifiers.
+  Student-facing texts never mention other streams: students don't know they're in cohorts.
 
 ## Configuration
 

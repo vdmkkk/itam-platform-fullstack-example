@@ -1,7 +1,8 @@
 """Request and response bodies.
 
 Every field is documented. Students read these descriptions in Swagger, and
-codegen turns them into comments on their TypeScript types.
+codegen turns them into comments on their TypeScript types, so the texts
+(class docstrings included) are in Russian.
 
 Conventions:
 
@@ -28,8 +29,12 @@ AVATAR_MAX_LENGTH = 150_000
 IMAGE_PREFIXES = ("http://", "https://", "data:image/")
 TELEGRAM_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
 
+# Card dates are Unix time in seconds, from 1970-01-01 to 2099-12-31 (UTC).
+UNIX_TIME_MAX = 4_102_444_799
+
 EXAMPLE_UUID = "3f8e9c1a-5b2d-4e7f-9a61-2c4b8d0e1f23"
 EXAMPLE_TIME = "2026-09-10T12:00:00Z"
+EXAMPLE_UNIX_TIME = 1_791_648_000  # 2026-10-10 19:00 Moscow time
 
 
 def _thousands(value: int) -> str:
@@ -52,7 +57,7 @@ def _check_image(value: str | None) -> str | None:
     if not value.startswith(IMAGE_PREFIXES):
         raise PydanticCustomError(
             "image_string",
-            "Must be an image link starting with http:// or https://, or a data:image/... URI",
+            "Нужна ссылка на картинку (http:// или https://) или data:image/... URI",
         )
     return value
 
@@ -64,9 +69,33 @@ def _check_telegram(value: str | None) -> str | None:
     if not TELEGRAM_RE.fullmatch(username):
         raise PydanticCustomError(
             "telegram",
-            "A Telegram username is 5-32 letters, digits or underscores (the leading @ is optional)",
+            "Имя пользователя в Telegram — 5-32 латинских буквы, цифры или подчёркивания "
+            "(@ в начале необязателен)",
         )
     return username
+
+
+def _check_unix_time(value: Any) -> Any:
+    """Catch the usual Unix time mistakes before the int check, with a hint for each."""
+    if isinstance(value, str) and not value.strip():
+        return None
+    if isinstance(value, (str, bool)):
+        raise PydanticCustomError(
+            "unix_time_type", f"Нужно число: Unix-время в секундах, например {EXAMPLE_UNIX_TIME}"
+        )
+    if isinstance(value, (int, float)):
+        if UNIX_TIME_MAX < value <= UNIX_TIME_MAX * 1000:
+            raise PydanticCustomError(
+                "unix_time_milliseconds",
+                "Похоже, это миллисекунды, а нужны секунды: Math.floor(ms / 1000)",
+            )
+        if isinstance(value, float) and not value.is_integer():
+            raise PydanticCustomError(
+                "unix_time_fraction", "Нужно целое число секунд: Math.floor(Date.now() / 1000)"
+            )
+        if not 0 <= value <= UNIX_TIME_MAX:
+            raise PydanticCustomError("unix_time_range", "Дата должна быть между 1970 и 2099 годом")
+    return value
 
 
 class RequestBody(BaseModel):
@@ -81,43 +110,43 @@ class RequestBody(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Every error response looks like this."""
+    """Так выглядит любой ответ с ошибкой."""
 
     detail: str = Field(
-        description="What went wrong, as a sentence you can show to a person.",
-        examples=["Card not found."],
+        description="Что пошло не так — предложение, которое можно показать человеку.",
+        examples=["Карточка не найдена. Возможно, её удалили."],
     )
 
 
 class FieldError(BaseModel):
-    """A problem with one specific input."""
+    """Проблема с одним конкретным полем."""
 
     field: str = Field(
         description=(
-            "Which input the problem is about. It can be a body field (`title`, `email`; "
-            "nested fields use dots, like `items.0.name`), a query or path parameter name, "
-            "or `body` for the request body as a whole."
+            "К чему относится проблема: к полю тела запроса (`title`, `email`; вложенные поля "
+            "пишутся через точку, например `items.0.name`), к query- или path-параметру или к "
+            "телу запроса целиком (`body`)."
         ),
         examples=["title"],
     )
     message: str = Field(
-        description="What is wrong with it. Show it next to the matching form input.",
-        examples=["This field is required"],
+        description="Что не так. Покажите это рядом с соответствующим полем формы.",
+        examples=["Обязательное поле"],
     )
 
 
 class ValidationErrorResponse(BaseModel):
-    """Returned with 422 (invalid data) and some 409s (e.g. an email that is already taken).
+    """Приходит с 422 (некорректные данные) и некоторыми 409 (например, когда email уже занят).
 
-    `detail` sums up every problem in one sentence. `errors` lists them one
-    by one, so a form can highlight the right inputs.
+    `detail` собирает все проблемы в одно предложение, а `errors` перечисляет
+    их по одной, чтобы форма могла подсветить нужные поля.
     """
 
     detail: str = Field(
-        description="All problems, in one readable sentence.",
-        examples=["title: This field is required; type: Input should be 'event', 'idea' or 'question'"],
+        description="Все проблемы одним читаемым предложением.",
+        examples=["title: Обязательное поле; type: Допустимые значения: 'event', 'idea', 'question'"],
     )
-    errors: list[FieldError] = Field(description="The same problems, one per input.")
+    errors: list[FieldError] = Field(description="Те же проблемы, по одной на поле.")
 
 
 # ---------------------------------------------------------------------------
@@ -126,133 +155,125 @@ class ValidationErrorResponse(BaseModel):
 
 
 class Stream(BaseModel):
-    """Your work group (cohort).
-
-    Everything you can see through this API belongs to your stream. Other
-    streams have their own boards, and you can't see them.
-    """
+    """Поток курса, в котором вы учитесь."""
 
     id: uuid.UUID | None = Field(
-        description=(
-            "Stream id on the course platform. `null` if you are enrolled without a stream: "
-            "everyone without a stream shares a separate board."
-        ),
+        description="Id потока на платформе курса. `null`, если вы записаны на курс без потока.",
         examples=["7c2a41e0-93d4-4b8e-8f0c-5a1d2e3f4b5c"],
     )
-    code: str | None = Field(description="Short stream code.", examples=["26F"])
+    code: str | None = Field(description="Короткий код потока.", examples=["26F"])
     title: str | None = Field(
-        description="Title given by the course team. Often `null`, so display `name` instead.",
+        description="Название от команды курса. Часто `null`, поэтому для показа берите `name`.",
         examples=["Осенний поток 2026"],
     )
     name: str = Field(
-        description="A ready-to-display name: `title`, or `code` when there is no title.",
+        description="Готовое для показа название: `title`, а если его нет — `code`.",
         examples=["Осенний поток 2026"],
     )
 
 
 class User(BaseModel):
-    """A member of your stream, as everyone else sees them.
+    """Участник, каким его видят остальные.
 
-    Used as the author of cards and comments and in the people list. The
-    email is private and appears only in your own `Profile`.
+    Используется как автор карточек и комментариев и в списке участников.
+    Email — личные данные: он есть только в вашем собственном `Profile`.
     """
 
     id: uuid.UUID = Field(
         description=(
-            "User id in this API. Use it with `GET /api/users/{user_id}` and "
+            "Id пользователя в этом API. Используйте его в `GET /api/users/{user_id}` и "
             "`GET /api/cards?author_id=...`."
         ),
         examples=[EXAMPLE_UUID],
     )
-    name: str = Field(description="Display name.", examples=["Аня Петрова"])
+    name: str = Field(description="Отображаемое имя.", examples=["Аня Петрова"])
     avatar_url: str | None = Field(
         description=(
-            "Avatar as a string you can put straight into `<img src>`: an http(s) link or a "
-            "`data:image/...` URI. `null` means no avatar, so show initials instead."
+            "Аватар в виде строки, которую можно сразу подставить в `<img src>`: ссылка http(s) "
+            "или `data:image/...` URI. `null` — аватара нет, покажите инициалы."
         ),
         examples=["https://courses.salut.uno/api/v1/media/avatars/anya.png"],
     )
     status: str | None = Field(
-        description="Short status line, like in a messenger.", examples=["Ищу команду на хакатон"]
+        description="Короткий статус, как в мессенджере.", examples=["Ищу команду на хакатон"]
     )
-    bio: str | None = Field(description="A few words about themselves.", examples=["Учу React по вечерам."])
+    bio: str | None = Field(description="Пара слов о себе.", examples=["Учу React по вечерам."])
     telegram: str | None = Field(
-        description="Telegram username without the `@`.", examples=["anya_codes"]
+        description="Имя пользователя в Telegram без `@`.", examples=["anya_codes"]
     )
     is_demo: bool = Field(
         description=(
-            "`true` for the demo people who fill every new board with examples. They are not "
-            "real classmates."
+            "`true` у демо-пользователей, которые наполняют каждую новую доску примерами. Это не "
+            "настоящие однокурсники."
         ),
         examples=[False],
     )
-    is_me: bool = Field(description="`true` if this is you.", examples=[False])
+    is_me: bool = Field(description="`true`, если это вы.", examples=[False])
     created_at: dt.datetime = Field(
-        description="When they first appeared in this API (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
+        description="Когда пользователь впервые появился в этом API (ISO-8601, UTC).",
+        examples=[EXAMPLE_TIME],
     )
 
 
 class UserDetail(User):
-    """A member of your stream, with their activity counters."""
+    """Участник со счётчиками активности."""
 
-    cards_count: int = Field(description="How many cards they have posted.", examples=[4])
-    comments_count: int = Field(description="How many comments they have written.", examples=[11])
-    total_score: int = Field(
-        description="The sum of the scores of all their cards.", examples=[7]
-    )
+    cards_count: int = Field(description="Сколько карточек опубликовал.", examples=[4])
+    comments_count: int = Field(description="Сколько комментариев написал.", examples=[11])
+    total_score: int = Field(description="Сумма счёта всех его карточек.", examples=[7])
 
 
 class Profile(BaseModel):
-    """Your own profile.
+    """Ваш профиль.
 
-    It starts with your name, email and avatar from the course platform. After
-    that it belongs to you: editing it here doesn't change the platform, and
-    changes on the platform don't overwrite it.
+    Изначально в нём имя, email и аватар с платформы курса. Дальше он
+    принадлежит вам: изменения здесь не затрагивают платформу, а изменения на
+    платформе не перезаписывают его.
     """
 
-    id: uuid.UUID = Field(description="Your user id in this API.", examples=[EXAMPLE_UUID])
-    name: str = Field(description="Display name.", examples=["Аня Петрова"])
+    id: uuid.UUID = Field(description="Ваш id в этом API.", examples=[EXAMPLE_UUID])
+    name: str = Field(description="Отображаемое имя.", examples=["Аня Петрова"])
     email: str | None = Field(
-        description="Your email. Only you can see it. It must be unique within your stream.",
+        description="Ваш email. Его видите только вы. Он не должен совпадать с email другого участника.",
         examples=["anya@example.com"],
     )
     avatar_url: str | None = Field(
-        description="Avatar: an http(s) image link or a `data:image/...` URI.",
+        description="Аватар: ссылка на картинку http(s) или `data:image/...` URI.",
         examples=["https://courses.salut.uno/api/v1/media/avatars/anya.png"],
     )
-    status: str | None = Field(description="Short status line.", examples=["Ищу команду на хакатон"])
-    bio: str | None = Field(description="About you.", examples=["Учу React по вечерам."])
-    telegram: str | None = Field(description="Telegram username without the `@`.", examples=["anya_codes"])
-    stream: Stream = Field(description="The stream you are in.")
+    status: str | None = Field(description="Короткий статус.", examples=["Ищу команду на хакатон"])
+    bio: str | None = Field(description="О себе.", examples=["Учу React по вечерам."])
+    telegram: str | None = Field(description="Имя пользователя в Telegram без `@`.", examples=["anya_codes"])
+    stream: Stream = Field(description="Поток, в котором вы учитесь.")
     created_at: dt.datetime = Field(
-        description="When you first used this API (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
+        description="Когда вы впервые обратились к этому API (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
     )
     updated_at: dt.datetime = Field(
-        description="When the profile was last changed (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
+        description="Когда профиль последний раз меняли (ISO-8601, UTC).", examples=[EXAMPLE_TIME]
     )
 
 
 class ProfileUpdate(RequestBody):
-    """Change your profile. Send only the fields you want to change.
+    """Изменение профиля. Отправляйте только поля, которые хотите поменять.
 
-    - Omitted fields stay as they are.
-    - `null` (or an empty string) clears an optional field.
-    - `name` can be changed but not cleared.
+    - Пропущенные поля остаются как есть.
+    - `null` (или пустая строка) очищает необязательное поле.
+    - `name` можно изменить, но нельзя очистить.
     """
 
     name: str = Field(
         default=None,
         min_length=1,
         max_length=80,
-        description="Display name, 1-80 characters.",
+        description="Отображаемое имя, 1-80 символов.",
         examples=["Аня Петрова"],
         json_schema_extra=_no_default,
     )
     email: EmailStr | None = Field(
         default=None,
         description=(
-            "A valid email address, unique within your stream. If a classmate already uses it, "
-            "you get 409 `This email is already in use`."
+            "Корректный email, не занятый другим участником. Если он уже занят, придёт 409 "
+            "`Этот email уже занят`."
         ),
         examples=["anya@example.com"],
     )
@@ -260,26 +281,26 @@ class ProfileUpdate(RequestBody):
         default=None,
         max_length=AVATAR_MAX_LENGTH,
         description=(
-            f"An http(s) image link or a `data:image/...;base64,...` URI, up to "
-            f"{_thousands(AVATAR_MAX_LENGTH)} characters. Your avatar is shown on every card and "
-            "comment you post, so keep it small."
+            f"Ссылка на картинку http(s) или `data:image/...;base64,...` URI, до "
+            f"{_thousands(AVATAR_MAX_LENGTH)} символов. Аватар показывается на каждой вашей "
+            "карточке и в каждом комментарии, так что пусть он будет небольшим."
         ),
         examples=["https://i.pravatar.cc/150?img=5"],
     )
     status: str | None = Field(
-        default=None, max_length=100, description="Short status line, up to 100 characters.",
+        default=None, max_length=100, description="Короткий статус, до 100 символов.",
         examples=["Ищу команду на хакатон"],
     )
     bio: str | None = Field(
-        default=None, max_length=1000, description="About you, up to 1000 characters.",
+        default=None, max_length=1000, description="О себе, до 1000 символов.",
         examples=["Учу React по вечерам."],
     )
     telegram: str | None = Field(
         default=None,
         max_length=33,
         description=(
-            "Telegram username: 5-32 letters, digits or underscores. The leading `@` is optional "
-            "and is stripped."
+            "Имя пользователя в Telegram: 5-32 латинских буквы, цифры или подчёркивания. `@` в "
+            "начале необязателен и отбрасывается."
         ),
         examples=["@anya_codes"],
     )
@@ -300,36 +321,40 @@ class ProfileUpdate(RequestBody):
 
 
 class Comment(BaseModel):
-    """A comment on a card. Comments are flat: you can't reply to a comment."""
+    """Комментарий к карточке. Комментарии плоские: ответить на комментарий нельзя."""
 
-    id: uuid.UUID = Field(description="Comment id.", examples=[EXAMPLE_UUID])
-    card_id: uuid.UUID = Field(description="The card it belongs to.", examples=[EXAMPLE_UUID])
-    text: str = Field(description="The comment text.", examples=["Буду! А запись будет?"])
-    author: User = Field(description="Who wrote it.")
+    id: uuid.UUID = Field(description="Id комментария.", examples=[EXAMPLE_UUID])
+    card_id: uuid.UUID = Field(description="Карточка, к которой он относится.", examples=[EXAMPLE_UUID])
+    text: str = Field(description="Текст комментария.", examples=["Буду! А запись будет?"])
+    author: User = Field(description="Кто написал.")
     is_mine: bool = Field(
-        description="`true` if you wrote it, meaning you can edit or delete it.", examples=[False]
+        description="`true`, если его написали вы, — значит, вы можете его изменить или удалить.",
+        examples=[False],
     )
-    created_at: dt.datetime = Field(description="When it was posted (ISO-8601, UTC).", examples=[EXAMPLE_TIME])
+    created_at: dt.datetime = Field(description="Когда опубликован (ISO-8601, UTC).", examples=[EXAMPLE_TIME])
     updated_at: dt.datetime = Field(
-        description="When it was last edited (ISO-8601, UTC). Equal to `created_at` if it was never edited.",
+        description=(
+            "Когда последний раз изменён (ISO-8601, UTC). Равен `created_at`, если комментарий "
+            "не редактировали."
+        ),
         examples=[EXAMPLE_TIME],
     )
 
 
 class CommentCreate(RequestBody):
-    """A new comment."""
+    """Новый комментарий."""
 
     text: str = Field(
-        min_length=1, max_length=2000, description="Comment text, 1-2000 characters.",
+        min_length=1, max_length=2000, description="Текст комментария, 1-2000 символов.",
         examples=["Классная идея, я за!"],
     )
 
 
 class CommentUpdate(RequestBody):
-    """New text for your comment."""
+    """Новый текст вашего комментария."""
 
     text: str = Field(
-        min_length=1, max_length=2000, description="Comment text, 1-2000 characters.",
+        min_length=1, max_length=2000, description="Текст комментария, 1-2000 символов.",
         examples=["Классная идея, я за! (upd: уже проголосовал)"],
     )
 
@@ -339,178 +364,199 @@ class CommentUpdate(RequestBody):
 # ---------------------------------------------------------------------------
 
 _PREVIEW_DESCRIPTION = (
-    "A picture for the card, as a string. Use an `https://...` image link, or a "
-    "`data:image/...;base64,...` URI (for example from `FileReader.readAsDataURL`). "
-    f"Up to {_thousands(PREVIEW_MAX_LENGTH)} characters, so use links for big images. "
-    "An empty string counts as `null`."
+    "Картинка для карточки в виде строки: ссылка на изображение `https://...` или "
+    "`data:image/...;base64,...` URI (например, из `FileReader.readAsDataURL`). "
+    f"До {_thousands(PREVIEW_MAX_LENGTH)} символов, так что для больших картинок используйте "
+    "ссылки. Пустая строка считается `null`."
 )
 
 _DATE_DESCRIPTION = (
-    "An optional date in `YYYY-MM-DD` format, which is exactly what `<input type=\"date\">` "
-    "gives you. Handy for events."
+    "Необязательная дата: **Unix-время в секундах** (целое число, UTC). Удобно для событий. "
+    "Из `<input type=\"datetime-local\">` или `<input type=\"date\">`: "
+    "`Math.floor(new Date(input.value).getTime() / 1000)`. Миллисекунды (`Date.now()`, "
+    "`getTime()`) не подойдут: сначала разделите их на 1000. Пустая строка считается `null`."
 )
 
 
 class Card(BaseModel):
-    """A card on the board, with everything needed to draw it.
+    """Карточка на доске со всем, что нужно для отрисовки.
 
-    **Which column?** Use `column`:
+    **В какой колонке?** Смотрите на `column`:
 
-    - `accepted` when `score >= accept_threshold`;
-    - `rejected` when `score <= -reject_threshold`;
-    - otherwise the card's `type` (`event`, `idea` or `question`).
+    - `accepted`, когда `score >= accept_threshold`;
+    - `rejected`, когда `score <= -reject_threshold`;
+    - иначе — `type` карточки (`event`, `idea` или `question`).
 
-    This is computed live on every request. If votes change, the card moves.
+    Это считается заново при каждом запросе: если голоса изменятся, карточка переедет.
     """
 
-    id: uuid.UUID = Field(description="Card id.", examples=[EXAMPLE_UUID])
-    title: str = Field(description="Card title.", examples=["Тёмная тема для доски"])
+    id: uuid.UUID = Field(description="Id карточки.", examples=[EXAMPLE_UUID])
+    title: str = Field(description="Заголовок карточки.", examples=["Тёмная тема для доски"])
     type: CardType = Field(
         description=(
-            "The kind of card, chosen by its author. It stays the same when the card is "
-            "accepted or rejected."
+            "Тип карточки, который выбрал автор. Не меняется, когда карточку принимают или "
+            "отклоняют."
         ),
         examples=[CardType.idea],
     )
     description: str | None = Field(
-        description="Longer text, or `null`.",
+        description="Подробный текст или `null`.",
         examples=["Вечером глаза устают от белого фона. Давайте добавим переключатель темы!"],
     )
     preview: str | None = Field(
-        description="A picture you can put straight into `<img src>`, or `null`.",
+        description="Картинка, которую можно сразу подставить в `<img src>`, или `null`.",
         examples=["https://picsum.photos/seed/itam/640/360"],
     )
-    date: dt.date | None = Field(description="Date in `YYYY-MM-DD` format, or `null`.", examples=["2026-10-01"])
+    date: int | None = Field(
+        description=(
+            "Дата карточки: Unix-время в секундах (UTC) или `null`. Для показа: "
+            "`new Date(card.date * 1000).toLocaleString(\"ru-RU\")`."
+        ),
+        examples=[EXAMPLE_UNIX_TIME],
+    )
     column: CardColumn = Field(
-        description="The column to draw the card in (see the rules above).",
+        description="Колонка, в которой рисовать карточку (правила выше).",
         examples=[CardColumn.accepted],
     )
     is_accepted: bool = Field(
-        description="`true` when the score has reached the accept threshold.", examples=[True]
+        description="`true`, когда счёт достиг порога принятия.", examples=[True]
     )
     is_rejected: bool = Field(
-        description="`true` when the score has fallen to minus the reject threshold.", examples=[False]
+        description="`true`, когда счёт опустился до минус порога отклонения.", examples=[False]
     )
-    upvotes: int = Field(description="How many people voted `up`.", examples=[6])
-    downvotes: int = Field(description="How many people voted `down`.", examples=[1])
-    votes_count: int = Field(description="All votes: `upvotes + downvotes`.", examples=[7])
-    score: int = Field(description="`upvotes - downvotes`.", examples=[5])
+    upvotes: int = Field(description="Сколько человек проголосовали `up`.", examples=[6])
+    downvotes: int = Field(description="Сколько человек проголосовали `down`.", examples=[1])
+    votes_count: int = Field(description="Всего голосов: `upvotes + downvotes`.", examples=[7])
+    score: int = Field(description="Счёт: `upvotes - downvotes`.", examples=[5])
     votes_to_accept: int = Field(
         description=(
-            "How many more net upvotes the card needs to be accepted: "
-            "`max(0, accept_threshold - score)`. `0` when it is accepted."
+            "Сколько ещё голосов «за» (с учётом голосов «против») нужно для принятия: "
+            "`max(0, accept_threshold - score)`. `0`, когда карточка принята."
         ),
         examples=[0],
     )
     votes_to_reject: int = Field(
         description=(
-            "How many more net downvotes would get it rejected: "
-            "`max(0, score + reject_threshold)`. `0` when it is rejected."
+            "Сколько ещё голосов «против» (с учётом голосов «за») приведут к отклонению: "
+            "`max(0, score + reject_threshold)`. `0`, когда карточка отклонена."
         ),
         examples=[10],
     )
-    comments_count: int = Field(description="How many comments it has.", examples=[2])
+    comments_count: int = Field(description="Сколько у неё комментариев.", examples=[2])
     my_vote: VoteValue | None = Field(
         description=(
-            "How *you* voted: `up`, `down`, or `null` if you haven't voted. Always `null` on "
-            "your own cards, because you can't vote on them."
+            "Как проголосовали *вы*: `up`, `down` или `null`, если не голосовали. На ваших "
+            "карточках всегда `null`: за них голосовать нельзя."
         ),
         examples=[VoteValue.up],
     )
     is_mine: bool = Field(
         description=(
-            "`true` if you are the author. Only the author can edit or delete a card, and "
-            "nobody can vote on their own cards."
+            "`true`, если автор — вы. Изменять и удалять карточку может только автор, и никто не "
+            "может голосовать за свои карточки."
         ),
         examples=[False],
     )
-    author: User = Field(description="Who posted the card.")
-    created_at: dt.datetime = Field(description="When it was posted (ISO-8601, UTC).", examples=[EXAMPLE_TIME])
+    author: User = Field(description="Кто опубликовал карточку.")
+    created_at: dt.datetime = Field(description="Когда опубликована (ISO-8601, UTC).", examples=[EXAMPLE_TIME])
     updated_at: dt.datetime = Field(
-        description="When its content was last edited (ISO-8601, UTC). Votes and comments don't change it.",
+        description=(
+            "Когда последний раз меняли её содержимое (ISO-8601, UTC). Голоса и комментарии его "
+            "не меняют."
+        ),
         examples=[EXAMPLE_TIME],
     )
 
 
 class CardDetail(Card):
-    """A card with its comments. It has every `Card` field plus `comments`."""
+    """Карточка с комментариями: все поля `Card` плюс `comments`."""
 
-    comments: list[Comment] = Field(description="All comments, oldest first.")
+    comments: list[Comment] = Field(description="Все комментарии, от старых к новым.")
 
 
 class CardCreate(RequestBody):
-    """A new card. Only `title` and `type` are required."""
+    """Новая карточка. Обязательны только `title` и `type`."""
 
     title: str = Field(
         min_length=1,
         max_length=120,
-        description="Card title, 1-120 characters. Leading and trailing spaces are trimmed.",
+        description="Заголовок, 1-120 символов. Пробелы в начале и в конце обрезаются.",
         examples=["Сходить на хакатон ITAM"],
     )
     type: CardType = Field(
         description=(
-            "Which column the card starts in: `event`, `idea` or `question`. You can't create "
-            "an `accepted` or `rejected` card: only votes move cards there."
+            "В какой колонке карточка появится: `event`, `idea` или `question`. Создать карточку "
+            "сразу в `accepted` или `rejected` нельзя: туда её переносят только голоса."
         ),
         examples=[CardType.idea],
     )
     description: str | None = Field(
         default=None,
         max_length=5000,
-        description="Longer text, up to 5000 characters. An empty string counts as `null`.",
+        description="Подробный текст, до 5000 символов. Пустая строка считается `null`.",
         examples=["Собираем команду из 3-4 человек, опыт не важен."],
     )
     preview: str | None = Field(
         default=None, max_length=PREVIEW_MAX_LENGTH, description=_PREVIEW_DESCRIPTION,
         examples=["https://picsum.photos/seed/itam/640/360"],
     )
-    date: dt.date | None = Field(default=None, description=_DATE_DESCRIPTION, examples=["2026-10-01"])
+    date: int | None = Field(
+        default=None, ge=0, le=UNIX_TIME_MAX, description=_DATE_DESCRIPTION,
+        examples=[EXAMPLE_UNIX_TIME],
+    )
 
     _empty_description = field_validator("description")(_empty_to_none)
     _preview = field_validator("preview")(_check_image)
+    _date = field_validator("date", mode="before")(_check_unix_time)
 
 
 class CardUpdate(RequestBody):
-    """Change your card. Send only the fields you want to change.
+    """Изменение вашей карточки. Отправляйте только поля, которые хотите поменять.
 
-    - Omitted fields stay as they are.
-    - `null` clears `description`, `preview` or `date`.
-    - `title` and `type` can be changed but not cleared.
+    - Пропущенные поля остаются как есть.
+    - `null` очищает `description`, `preview` или `date`.
+    - `title` и `type` можно изменить, но нельзя очистить.
 
-    Changing `type` moves the card between the `event`, `idea` and `question`
-    columns. It doesn't affect votes, so an accepted card stays accepted.
+    Смена `type` переносит карточку между колонками `event`, `idea` и
+    `question`. На голоса это не влияет, так что принятая карточка остаётся
+    принятой.
     """
 
     title: str = Field(
         default=None,
         min_length=1,
         max_length=120,
-        description="Card title, 1-120 characters.",
+        description="Заголовок, 1-120 символов.",
         examples=["Сходить на хакатон ITAM всей командой"],
         json_schema_extra=_no_default,
     )
     type: CardType = Field(
         default=None,
-        description="New type: `event`, `idea` or `question`.",
+        description="Новый тип: `event`, `idea` или `question`.",
         examples=[CardType.event],
         json_schema_extra=_no_default,
     )
     description: str | None = Field(
-        default=None, max_length=5000, description="Longer text, or `null` to clear it."
+        default=None, max_length=5000,
+        description="Подробный текст, до 5000 символов, или `null`, чтобы его очистить.",
     )
     preview: str | None = Field(
         default=None, max_length=PREVIEW_MAX_LENGTH, description=_PREVIEW_DESCRIPTION
     )
-    date: dt.date | None = Field(default=None, description=_DATE_DESCRIPTION)
+    date: int | None = Field(
+        default=None, ge=0, le=UNIX_TIME_MAX, description=_DATE_DESCRIPTION,
+        examples=[EXAMPLE_UNIX_TIME],
+    )
 
     _empty_description = field_validator("description")(_empty_to_none)
     _preview = field_validator("preview")(_check_image)
+    _date = field_validator("date", mode="before")(_check_unix_time)
 
 
 class VoteRequest(RequestBody):
-    """Your vote. Sending it again with the other value changes your vote."""
+    """Ваш голос. Если отправить его ещё раз с другим значением, голос поменяется."""
 
-    value: VoteValue = Field(description="`up` or `down`.", examples=[VoteValue.up])
+    value: VoteValue = Field(description="`up` или `down`.", examples=[VoteValue.up])
 
 
 # ---------------------------------------------------------------------------
@@ -519,32 +565,35 @@ class VoteRequest(RequestBody):
 
 
 class BoardColumn(BaseModel):
-    """One column of the board."""
+    """Одна колонка доски."""
 
-    id: CardColumn = Field(description="Column id, the same value as `Card.column`.", examples=[CardColumn.idea])
-    title: str = Field(description="A human-readable title.", examples=["Ideas"])
-    description: str = Field(
-        description="What goes into this column.", examples=["Proposals for the stream to vote on."]
+    id: CardColumn = Field(
+        description="Id колонки — то же значение, что в `Card.column`.", examples=[CardColumn.idea]
     )
-    cards_count: int = Field(description="How many cards are in it right now.", examples=[3])
+    title: str = Field(description="Название для показа.", examples=["Идеи"])
+    description: str = Field(
+        description="Что попадает в эту колонку.",
+        examples=["Предложения, за которые голосуют участники."],
+    )
+    cards_count: int = Field(description="Сколько карточек в ней прямо сейчас.", examples=[3])
 
 
 class Board(BaseModel):
-    """The board as a whole: its columns, the vote thresholds and your stream."""
+    """Доска целиком: колонки, пороги голосования и ваш поток."""
 
-    stream: Stream = Field(description="The stream this board belongs to (yours).")
+    stream: Stream = Field(description="Поток, которому принадлежит доска (ваш).")
     accept_threshold: int = Field(
-        description="A card is accepted when `score >= accept_threshold`.", examples=[5]
+        description="Карточка принята, когда `score >= accept_threshold`.", examples=[5]
     )
     reject_threshold: int = Field(
-        description="A card is rejected when `score <= -reject_threshold`.", examples=[5]
+        description="Карточка отклонена, когда `score <= -reject_threshold`.", examples=[5]
     )
     columns: list[BoardColumn] = Field(
-        description="All five columns, in display order: event, idea, question, accepted, rejected."
+        description="Все пять колонок в порядке отображения: event, idea, question, accepted, rejected."
     )
-    cards_count: int = Field(description="Cards on the board in total.", examples=[8])
+    cards_count: int = Field(description="Всего карточек на доске.", examples=[8])
     members_count: int = Field(
-        description="Real people in your stream who are known to this API (demo people excluded).",
+        description="Сколько реальных участников знает этот API (без демо-пользователей).",
         examples=[17],
     )
 
@@ -555,39 +604,41 @@ class Board(BaseModel):
 
 
 class BoardSettings(BaseModel):
-    """Vote thresholds, shared by all streams."""
+    """Пороги голосования, общие для всех потоков."""
 
-    accept_threshold: int = Field(description="`score >= accept_threshold` means accepted.", examples=[5])
-    reject_threshold: int = Field(description="`score <= -reject_threshold` means rejected.", examples=[5])
-    updated_at: dt.datetime = Field(description="When they were last changed.", examples=[EXAMPLE_TIME])
+    accept_threshold: int = Field(description="`score >= accept_threshold` — карточка принята.", examples=[5])
+    reject_threshold: int = Field(description="`score <= -reject_threshold` — карточка отклонена.", examples=[5])
+    updated_at: dt.datetime = Field(description="Когда их последний раз меняли.", examples=[EXAMPLE_TIME])
 
 
 class BoardSettingsUpdate(RequestBody):
-    """New thresholds. Send one or both. They apply immediately to every card in every stream."""
+    """Новые пороги. Отправьте один или оба. Они сразу применяются ко всем карточкам во всех потоках."""
 
     accept_threshold: int = Field(
-        default=None, ge=1, le=1000, description="Positive integer.", examples=[3],
+        default=None, ge=1, le=1000, description="Целое положительное число.", examples=[3],
         json_schema_extra=_no_default,
     )
     reject_threshold: int = Field(
-        default=None, ge=1, le=1000, description="Positive integer.", examples=[3],
+        default=None, ge=1, le=1000, description="Целое положительное число.", examples=[3],
         json_schema_extra=_no_default,
     )
 
 
 class AdminStream(BaseModel):
-    """A stream this API has seen, with activity counters."""
+    """Поток, который обращался к этому API, со счётчиками активности."""
 
-    id: uuid.UUID | None = Field(description="Platform stream id, or `null` for students without a stream.")
-    code: str | None = Field(description="Stream code.", examples=["26F"])
-    title: str | None = Field(description="Stream title.", examples=["Осенний поток 2026"])
-    name: str = Field(description="`title` or `code`.", examples=["Осенний поток 2026"])
-    members_count: int = Field(description="Real people (demo people excluded).", examples=[17])
-    cards_count: int = Field(description="Cards, including demo cards.", examples=[42])
-    comments_count: int = Field(description="Comments.", examples=[120])
-    votes_count: int = Field(description="Votes.", examples=[300])
-    first_seen_at: dt.datetime = Field(description="When the first student of the stream showed up.")
+    id: uuid.UUID | None = Field(description="Id потока на платформе или `null` для студентов без потока.")
+    code: str | None = Field(description="Код потока.", examples=["26F"])
+    title: str | None = Field(description="Название потока.", examples=["Осенний поток 2026"])
+    name: str = Field(description="`title` или `code`.", examples=["Осенний поток 2026"])
+    members_count: int = Field(description="Реальные люди (без демо-пользователей).", examples=[17])
+    cards_count: int = Field(description="Карточки, включая демо.", examples=[42])
+    comments_count: int = Field(description="Комментарии.", examples=[120])
+    votes_count: int = Field(description="Голоса.", examples=[300])
+    first_seen_at: dt.datetime = Field(description="Когда появился первый студент потока.")
 
 
 class Health(BaseModel):
-    status: str = Field(description="`ok` when the API and its database are up.", examples=["ok"])
+    """Состояние сервиса."""
+
+    status: str = Field(description="`ok`, когда API и его база данных работают.", examples=["ok"])

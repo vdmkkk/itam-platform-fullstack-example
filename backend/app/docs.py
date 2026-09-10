@@ -1,7 +1,9 @@
 """Texts for the OpenAPI document: the Swagger intro, tag descriptions and shared error docs.
 
 Students use Swagger as their main reference, so these texts are part of the
-product, not an afterthought.
+product, not an afterthought. They are in Russian, like the course. Error
+examples reuse the messages the API really sends, so the docs can't drift
+from the responses.
 """
 
 from __future__ import annotations
@@ -9,122 +11,99 @@ from __future__ import annotations
 from typing import Any
 
 from app.config import Settings
+from app.deps import ADMIN_DISABLED, ADMIN_MISSING, ADMIN_WRONG
+from app.errors import BODY_NOT_JSON, REQUIRED
+from app.identity import MISSING_TOKEN, invalid_token, platform_unavailable
+from app.ratelimit import rate_limit_detail
 from app.schemas import ErrorResponse, ValidationErrorResponse
 
+EMAIL_TAKEN = "Этот email уже занят"
+EMAIL_TAKEN_DETAIL = "Этот email уже занят другим участником."
+
 INTRO = """
-The **ITAM Board** is a small Trello-like API for the *Frontend (ITAM)* course. Everyone in your
-stream shares one board of **events**, **ideas** and **questions**: you post cards, vote on each
-other's cards and discuss them in the comments. During the course you will build a React
-frontend for it.
+**ITAM Board** — небольшой API в духе Trello для курса *Frontend (ITAM)*. Это общая доска
+**событий**, **идей** и **вопросов** для всех, кто учится вместе с вами: вы публикуете карточки,
+голосуете за чужие и обсуждаете их в комментариях. За время курса вы напишете для неё фронтенд
+на React.
 
-## 1. Authorize (30 seconds)
+## 1. Авторизация (30 секунд)
 
-There is **no login**. Every request carries your personal course token in a single header:
+Логина **нет**. Каждый запрос несёт ваш личный токен курса в одном заголовке:
 
 ```
 X-Course-Token: exb_xxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-1. Open the course page, go to the **«API проекта»** tab and copy your token.
-2. Click the **Authorize** button on this page, paste the token into `CourseToken` and press
+1. Откройте страницу курса, вкладку **«API проекта»**, и скопируйте токен.
+2. Нажмите кнопку **Authorize** на этой странице, вставьте токен в поле `CourseToken` и нажмите
    *Authorize*.
-3. Open any endpoint and press **Execute**. Good first calls are `GET /api/me` and
+3. Откройте любой эндпоинт и нажмите **Execute**. Для начала подойдут `GET /api/me` и
    `GET /api/cards`.
 
-Swagger remembers the token in this browser, so you only have to do this once.
+Swagger запомнит токен в этом браузере, так что сделать это нужно всего один раз.
 
-## 2. How the board works
+## 2. Как устроена доска
 
-| Column | A card is here when… |
+| Колонка | Карточка здесь, когда… |
 | --- | --- |
-| `event` | its `type` is `"event"` and votes haven't decided it yet |
-| `idea` | its `type` is `"idea"` and votes haven't decided it yet |
-| `question` | its `type` is `"question"` and votes haven't decided it yet |
-| `accepted` | `score >= accept_threshold`, whatever its type |
-| `rejected` | `score <= -reject_threshold`, whatever its type |
+| `event` | её `type` — `"event"`, а голоса ещё ничего не решили |
+| `idea` | её `type` — `"idea"`, а голоса ещё ничего не решили |
+| `question` | её `type` — `"question"`, а голоса ещё ничего не решили |
+| `accepted` | `score >= accept_threshold`, какой бы ни был тип |
+| `rejected` | `score <= -reject_threshold`, какой бы ни был тип |
 
-* Anyone can create a card in one of the first three columns (`type` is `event`, `idea` or
-  `question`). The author can change the type at any time.
-* `score = upvotes - downvotes`. The course team sets the thresholds; you can read them from
-  `GET /api/board`.
-* An accepted or rejected card **keeps its `type`**. `is_accepted` and `is_rejected` are
-  separate flags, and `column` tells you where to draw the card.
-* Everything is computed live: if votes change, the card moves back.
+* Карточку может создать каждый — в одной из первых трёх колонок (`type`: `event`, `idea` или
+  `question`). Автор может поменять тип в любой момент.
+* `score = upvotes - downvotes`. Пороги задаёт команда курса, узнать их можно в `GET /api/board`.
+* Принятая или отклонённая карточка **сохраняет свой `type`**. `is_accepted` и `is_rejected` —
+  отдельные флаги, а `column` говорит, в какой колонке рисовать карточку.
+* Всё считается на лету: если голоса изменятся, карточка вернётся на место.
 
-## 3. Rules
+## 3. Правила
 
-* You only see your own stream (cohort). Other streams have their own boards, and you can't
-  reach them even with a known id: you get 404.
-* You can vote on and comment on anyone's cards, but you **can't vote on your own** (that gives 403).
-* Only the author can edit or delete a card or a comment.
-* Your profile starts with your name, email and avatar from the course platform. Editing it
-  here doesn't touch the platform.
-* A brand-new board comes with a few demo cards from demo people (`is_demo: true`), so you have
-  something to render straight away.
+* Голосовать и комментировать можно любые карточки, но **за свою карточку голосовать нельзя**
+  (будет 403).
+* Изменить или удалить карточку или комментарий может только автор.
+* В профиле сначала стоят ваши имя, email и аватар с платформы курса. Изменения здесь на
+  платформу не влияют.
+* На новой доске сразу есть несколько демо-карточек от демо-пользователей (`is_demo: true`),
+  чтобы было что отрисовать с первого запроса.
 
-## 4. From code
+## 4. Соглашения
 
-```js
-const API_URL = "__BASE__";
-const TOKEN = "exb_..."; // your token from the course page
+* JSON с полями в `snake_case`. Id — строки UUID.
+* Дата карточки (`date`) — **число**: Unix-время в секундах (UTC). Показать:
+  `new Date(card.date * 1000)`. Отправить: `Math.floor(date.getTime() / 1000)`.
+* Время создания и изменения (`created_at`, `updated_at`) — строки ISO-8601 в UTC
+  (`2026-09-10T12:00:00Z`).
+* Списки — обычные JSON-массивы, без пагинации и объектов-обёрток.
+* Ошибка всегда выглядит как `{"detail": "Понятное человеку предложение"}`. В ошибках
+  валидации (422) есть ещё `errors: [{"field": "...", "message": "..."}]`, чтобы показать каждое
+  сообщение рядом с нужным полем формы.
 
-// Read the whole board
-const response = await fetch(`${API_URL}/api/cards`, {
-  headers: { "X-Course-Token": TOKEN },
-});
-if (!response.ok) {
-  const error = await response.json(); // { detail: "..." }
-  throw new Error(error.detail);
-}
-const cards = await response.json();
-
-// Create a card
-await fetch(`${API_URL}/api/cards`, {
-  method: "POST",
-  headers: { "X-Course-Token": TOKEN, "Content-Type": "application/json" },
-  body: JSON.stringify({ title: "Сходить на хакатон", type: "event", date: "2026-10-01" }),
-});
-
-// Upvote someone else's card
-await fetch(`${API_URL}/api/cards/${cardId}/vote`, {
-  method: "PUT",
-  headers: { "X-Course-Token": TOKEN, "Content-Type": "application/json" },
-  body: JSON.stringify({ value: "up" }),
-});
-```
-
-## 5. Conventions
-
-* JSON with `snake_case` fields. Ids are UUID strings.
-* Timestamps are ISO-8601 in UTC (`2026-09-10T12:00:00Z`). Dates are `YYYY-MM-DD`.
-* Lists are plain JSON arrays, with no pagination and no wrapper object.
-* Errors always look like `{"detail": "A human-readable sentence"}`. Invalid data (422) also
-  includes `errors: [{"field": "...", "message": "..."}]`, so you can show each message next to
-  the right form input.
-
-| Code | Meaning |
+| Код | Что значит |
 | --- | --- |
 | `200` | OK |
-| `201` | Created: the body is the new object |
-| `204` | Done, and the body is **empty**, so don't call `response.json()` |
-| `401` | The token is missing or not valid |
-| `403` | You're not allowed to do this, such as edit someone else's card |
-| `404` | Not found, or it belongs to another stream |
-| `409` | Conflict, such as an email that is already in use |
-| `422` | The data is invalid; see `errors` |
-| `429` | Too many requests. The limit is __RATE__ per second per token, so a `useEffect` without a dependency array will hit it |
-| `503` | The course platform is temporarily unavailable, so your token can't be checked. Try again |
+| `201` | Создано: в теле — новый объект |
+| `204` | Готово, тело **пустое**, так что не вызывайте `response.json()` |
+| `401` | Токена нет или он недействителен |
+| `403` | Так нельзя, например изменить чужую карточку |
+| `404` | Не найдено |
+| `409` | Конфликт, например email уже занят |
+| `422` | Некорректные данные, подробности в `errors` |
+| `429` | Слишком много запросов. Лимит — __RATE__ в секунду на токен, и `useEffect` без массива зависимостей быстро в него упрётся |
+| `503` | Платформа курса временно недоступна, поэтому токен не проверить. Повторите запрос позже |
 
-## 6. TypeScript types
+## 5. Типы для TypeScript
 
-The machine-readable schema is at [`__BASE__/openapi.json`](__BASE__/openapi.json).
-Generate types from it:
+Машиночитаемая схема лежит здесь: [`__BASE__/openapi.json`](__BASE__/openapi.json).
+Сгенерируйте из неё типы:
 
 ```sh
 npx openapi-typescript __BASE__/openapi.json -o src/shared/api/schema.d.ts
 ```
 
-Prefer a different layout? The same docs are at [`/redoc`](__BASE__/redoc).
+Удобнее другой вид? Та же документация есть в [`/redoc`](__BASE__/redoc).
 """
 
 
@@ -136,39 +115,39 @@ def api_description(settings: Settings) -> str:
     )
 
 
+# Tag names stay English: codegen tools turn them into class and file names.
 TAGS: list[dict[str, Any]] = [
     {
         "name": "Board",
-        "description": "The board as a whole: columns, vote thresholds and your stream. "
-        "A good first request.",
+        "description": "Доска целиком: колонки и пороги голосования. Хороший первый запрос.",
     },
     {
         "name": "Cards",
-        "description": "Create, read, edit and delete cards. `GET /api/cards` returns everything "
-        "needed to render the board in one request.",
+        "description": "Создание, просмотр, изменение и удаление карточек. `GET /api/cards` за "
+        "один запрос отдаёт всё, что нужно для отрисовки доски.",
     },
     {
         "name": "Votes",
-        "description": "Upvote or downvote other people's cards. You get one vote per card, and "
-        "you can change or remove it. You can't vote on your own cards.",
+        "description": "Голоса «за» и «против» чужих карточек. На карточку — один голос, его "
+        "можно поменять или отозвать. За свои карточки голосовать нельзя.",
     },
     {
         "name": "Comments",
-        "description": "Flat comments on cards, with no replies to comments. Anyone in the stream "
-        "can comment. Only the author can edit or delete a comment.",
+        "description": "Плоские комментарии к карточкам, без ответов на комментарии. "
+        "Комментировать может каждый, а изменить или удалить комментарий — только автор.",
     },
     {
         "name": "Profile",
-        "description": "Your own profile. It starts as a copy of your course platform profile "
-        "and is yours to edit.",
+        "description": "Ваш профиль. Сначала это копия профиля на платформе курса, дальше вы "
+        "редактируете его сами.",
     },
-    {"name": "People", "description": "The other members of your stream."},
+    {"name": "People", "description": "Участники доски: однокурсники и демо-пользователи."},
     {
         "name": "Admin",
-        "description": "Course-team tools, protected by the `X-Admin-Token` header. Students "
-        "don't need them.",
+        "description": "Инструменты команды курса, защищены заголовком `X-Admin-Token`. "
+        "Студентам они не нужны.",
     },
-    {"name": "System", "description": "Service endpoints. They need no token."},
+    {"name": "System", "description": "Служебные эндпоинты. Токен не нужен."},
 ]
 
 
@@ -189,64 +168,37 @@ def _error_doc(description: str, examples: dict[str, tuple[str, str]]) -> dict[s
 
 def not_found(detail: str) -> dict[str, Any]:
     return _error_doc(
-        "Not found. It doesn't exist, was deleted, or belongs to another stream.",
-        {"not_found": ("Not found", detail)},
+        "Не найдено: такого объекта нет или его удалили.", {"not_found": ("Не найдено", detail)}
     )
 
 
 def forbidden(detail: str) -> dict[str, Any]:
-    return _error_doc("You are not allowed to do this.", {"forbidden": ("Not allowed", detail)})
+    return _error_doc("Это действие вам недоступно.", {"forbidden": ("Нельзя", detail)})
 
 
 AUTH_ERRORS: dict[int | str, dict[str, Any]] = {
     401: _error_doc(
-        "The `X-Course-Token` header is missing or the token is not valid.",
+        "Заголовка `X-Course-Token` нет или токен недействителен.",
         {
-            "missing": (
-                "No token sent",
-                "Missing X-Course-Token header. Copy your token from the course page "
-                "(tab «API проекта»). Send it with every request. In Swagger, click Authorize.",
-            ),
-            "invalid": (
-                "Token is wrong or was reset",
-                "Your course token is not valid: it may have been reset, or you no longer have "
-                "access to the course. Copy your token from the course page (tab «API проекта»).",
-            ),
+            "missing": ("Токен не передан", MISSING_TOKEN),
+            "invalid": ("Токен неверный или сброшен", str(invalid_token().detail)),
         },
     ),
     429: _error_doc(
-        "Too many requests from this token. Wait `Retry-After` seconds.",
-        {
-            "too_many": (
-                "Rate limit",
-                "Too many requests: the limit is 60 per second per token. Is a useEffect "
-                "re-running in a loop? Check its dependency array.",
-            )
-        },
+        "Слишком много запросов с этого токена. Подождите `Retry-After` секунд.",
+        {"too_many": ("Лимит запросов", rate_limit_detail(60))},  # 60 is the default limit
     ),
     503: _error_doc(
-        "The course platform can't be reached to check the token. Try again shortly.",
-        {
-            "platform_down": (
-                "Platform unavailable",
-                "The course platform is not responding, so we can't check your token right now. "
-                "Please try again in a minute.",
-            )
-        },
+        "Платформа курса недоступна, поэтому токен не проверить. Повторите запрос чуть позже.",
+        {"platform_down": ("Платформа недоступна", str(platform_unavailable().detail))},
     ),
 }
 
 ADMIN_ERRORS: dict[int | str, dict[str, Any]] = {
-    401: _error_doc("No `X-Admin-Token` header.", {"missing": ("No token", "Missing X-Admin-Token header.")}),
-    403: _error_doc("Wrong admin token.", {"wrong": ("Wrong token", "Wrong admin token.")}),
+    401: _error_doc("Нет заголовка `X-Admin-Token`.", {"missing": ("Нет токена", ADMIN_MISSING)}),
+    403: _error_doc("Неверный админский токен.", {"wrong": ("Неверный токен", ADMIN_WRONG)}),
     503: _error_doc(
-        "The admin API is not configured on this server.",
-        {
-            "disabled": (
-                "Disabled",
-                "The admin API is disabled: ADMIN_TOKEN is not configured on the server.",
-            )
-        },
+        "Админский API не настроен на этом сервере.", {"disabled": ("Выключен", ADMIN_DISABLED)}
     ),
 }
 
@@ -263,26 +215,17 @@ def _validation_example(summary: str, errors: list[tuple[str, str]]) -> dict[str
 
 VALIDATION_ERROR: dict[str, Any] = {
     "model": ValidationErrorResponse,
-    "description": "The data is invalid. `errors` lists every problem, one per input.",
+    "description": "Некорректные данные. В `errors` перечислены все проблемы, по одной на поле.",
     "content": {
         "application/json": {
             "examples": {
-                "missing_field": _validation_example(
-                    "A required field is missing", [("title", "This field is required")]
-                ),
+                "missing_field": _validation_example("Нет обязательного поля", [("title", REQUIRED)]),
                 "bad_value": _validation_example(
-                    "A value is not allowed",
-                    [("type", "Input should be 'event', 'idea' or 'question'")],
+                    "Недопустимое значение",
+                    [("type", "Допустимые значения: 'event', 'idea', 'question'")],
                 ),
                 "no_json": _validation_example(
-                    "Body is not JSON (forgot Content-Type?)",
-                    [
-                        (
-                            "body",
-                            "Send the request body as a JSON object, with the header "
-                            "Content-Type: application/json",
-                        )
-                    ],
+                    "Тело не JSON (забыли Content-Type?)", [("body", BODY_NOT_JSON)]
                 ),
             }
         }
@@ -291,13 +234,17 @@ VALIDATION_ERROR: dict[str, Any] = {
 
 EMAIL_CONFLICT: dict[str, Any] = {
     "model": ValidationErrorResponse,
-    "description": "Another member of your stream already uses this email.",
+    "description": "Этот email уже использует другой участник.",
     "content": {
         "application/json": {
             "examples": {
-                "email_taken": _validation_example(
-                    "Email already in use", [("email", "This email is already in use")]
-                )
+                "email_taken": {
+                    "summary": "Email уже занят",
+                    "value": {
+                        "detail": EMAIL_TAKEN_DETAIL,
+                        "errors": [{"field": "email", "message": EMAIL_TAKEN}],
+                    },
+                }
             }
         }
     },

@@ -16,13 +16,13 @@ from helpers import me
 def test_missing_token_is_401_with_a_hint(client):
     response = client.get("/api/cards")
     assert response.status_code == 401
-    assert "Missing X-Course-Token header" in response.json()["detail"]
+    assert "Нет заголовка X-Course-Token" in response.json()["detail"]
 
 
 def test_token_sent_as_authorization_gets_a_specific_hint(client, alice):
     response = client.get("/api/cards", headers={"Authorization": f"Bearer {alice.token}"})
     assert response.status_code == 401
-    assert "not in Authorization" in response.json()["detail"]
+    assert "а не в Authorization" in response.json()["detail"]
 
 
 def test_garbage_tokens_are_401_not_500(client, platform):
@@ -80,7 +80,7 @@ def test_wrong_service_key_is_500_never_401(client, platform, alice):
     platform.service_key = "exbk_rotated_elsewhere"
     response = client.get("/api/cards", headers=alice.headers)
     assert response.status_code == 500
-    assert "service key" in response.json()["detail"]
+    assert "сервисный ключ" in response.json()["detail"]
 
 
 def test_platform_outage_is_503(client, platform, alice):
@@ -113,7 +113,7 @@ def test_docs_work_behind_the_path_prefix(make_client):
     docs = proxied.get("/docs")
     assert docs.status_code == 200
     assert f"{prefix}/openapi.json" in docs.text
-    assert proxied.get("/openapi.json").json()["servers"] == [{"url": public, "description": "Public API"}]
+    assert proxied.get("/openapi.json").json()["servers"] == [{"url": public, "description": "Публичный API"}]
     assert proxied.get("/health").status_code == 200
 
     without_public_url = make_client(root_path=prefix)
@@ -124,6 +124,15 @@ def test_openapi_documents_a_single_error_shape(client):
     spec = client.get("/openapi.json").json()
     assert "HTTPValidationError" not in json.dumps(spec)
     assert "ValidationErrorResponse" in spec["components"]["schemas"]
+
+
+def test_openapi_is_russian_and_card_dates_are_integers(client):
+    spec = client.get("/openapi.json").json()
+    assert "Successful Response" not in json.dumps(spec)
+    assert "## 3. Правила" in spec["info"]["description"]
+    schemas = spec["components"]["schemas"]
+    assert {"type": "integer", "minimum": 0, "maximum": 4102444799} in schemas["CardCreate"]["properties"]["date"]["anyOf"]
+    assert {"type": "integer"} in schemas["Card"]["properties"]["date"]["anyOf"]
 
 
 def test_rate_limit_is_429_with_retry_after(make_client, alice):

@@ -6,6 +6,14 @@ import time
 from collections.abc import Callable
 
 
+def rate_limit_detail(per_second: float) -> str:
+    """The 429 message. The docs show it too, so Swagger quotes the real text."""
+    return (
+        f"Слишком много запросов: не больше {per_second:g} в секунду на токен. Может, "
+        "useEffect перезапускается в цикле? Проверьте массив зависимостей."
+    )
+
+
 class RateLimiter:
     """A token bucket per key. It refills `rate` tokens per second and holds at most `burst`."""
 

@@ -74,13 +74,19 @@ def test_profile_update_and_validation(client, alice):
         assert response.status_code == 422, bad
         assert response.json()["errors"][0]["field"] == next(iter(bad))
 
+    def message(body):
+        return client.patch("/api/me", json=body, headers=alice.headers).json()["errors"][0]["message"]
+
+    assert message({"email": "nope"}) == "Некорректный email"
+    assert message({"telegram": "a" * 34}) == "Максимум 33 символа"
+
 
 def test_email_must_be_unique_within_the_stream(client, alice, bob, carol):
     bob_email = me(client, bob)["email"]
 
     taken = client.patch("/api/me", json={"email": bob_email.upper()}, headers=alice.headers)
     assert taken.status_code == 409
-    assert taken.json()["errors"] == [{"field": "email", "message": "This email is already in use"}]
+    assert taken.json()["errors"] == [{"field": "email", "message": "Этот email уже занят"}]
 
     assert client.patch("/api/me", json={"email": "alice@example.com"}, headers=alice.headers).status_code == 200
     # Uniqueness is per stream: another stream may use the same address.

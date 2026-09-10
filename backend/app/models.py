@@ -12,9 +12,9 @@ import datetime as dt
 import uuid
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
-    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -119,7 +119,8 @@ class Card(Base):
     )
     description: Mapped[str | None] = mapped_column(Text)
     preview: Mapped[str | None] = mapped_column(Text)
-    date: Mapped[dt.date | None] = mapped_column(Date)
+    # Unix time in seconds (UTC), exactly as the API sends and receives it.
+    date: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[dt.datetime] = created_at_column()
     updated_at: Mapped[dt.datetime] = updated_at_column()
 

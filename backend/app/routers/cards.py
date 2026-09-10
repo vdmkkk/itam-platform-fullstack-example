@@ -11,29 +11,33 @@ from app import models, schemas, services
 from app.deps import BoardThresholds, CurrentActor, DbSession
 from app.docs import AUTH_ERRORS, VALIDATION_ERROR, forbidden, not_found
 from app.enums import CardColumn, CardSort, CardType, VoteValue
+from app.schemas import EXAMPLE_UNIX_TIME
+from app.services import CARD_NOT_FOUND
 
 router = APIRouter()
 
-CardId = Annotated[uuid.UUID, Path(description="Card id.")]
-CARD_NOT_FOUND = "Card not found. It may have been deleted."
+CardId = Annotated[uuid.UUID, Path(description="Id карточки.")]
+ONLY_AUTHOR_EDITS = "Изменить карточку может только её автор."
+ONLY_AUTHOR_DELETES = "Удалить карточку может только её автор."
+NO_SELF_VOTE = "Нельзя голосовать за свою карточку."
 
 CREATE_EXAMPLES: dict[str, Any] = {
     "idea": {
-        "summary": "An idea (only the required fields)",
+        "summary": "Идея (только обязательные поля)",
         "value": {"title": "Добавить тёмную тему", "type": "idea"},
     },
     "event": {
-        "summary": "An event with a description, a date and a picture",
+        "summary": "Событие с описанием, датой и картинкой",
         "value": {
             "title": "Хакатон ITAM",
             "type": "event",
             "description": "Собираем команды по 3–4 человека.",
-            "date": "2026-10-10",
+            "date": EXAMPLE_UNIX_TIME,
             "preview": "https://picsum.photos/seed/hackathon/640/360",
         },
     },
     "question": {
-        "summary": "A question",
+        "summary": "Вопрос",
         "value": {
             "title": "Где лучше хранить токен во фронтенде?",
             "type": "question",
@@ -43,14 +47,15 @@ CREATE_EXAMPLES: dict[str, Any] = {
 }
 
 UPDATE_EXAMPLES: dict[str, Any] = {
-    "rename": {"summary": "Change the title", "value": {"title": "Хакатон ITAM: ищем дизайнера"}},
-    "retype": {"summary": "Move to another column (change the type)", "value": {"type": "event"}},
-    "clear": {"summary": "Remove the picture and the date", "value": {"preview": None, "date": None}},
+    "rename": {"summary": "Поменять заголовок", "value": {"title": "Хакатон ITAM: ищем дизайнера"}},
+    "retype": {"summary": "Перенести в другую колонку (сменить тип)", "value": {"type": "event"}},
+    "redate": {"summary": "Перенести дату", "value": {"date": EXAMPLE_UNIX_TIME + 86400}},
+    "clear": {"summary": "Убрать картинку и дату", "value": {"preview": None, "date": None}},
 }
 
 VOTE_EXAMPLES: dict[str, Any] = {
-    "up": {"summary": "Upvote", "value": {"value": "up"}},
-    "down": {"summary": "Downvote", "value": {"value": "down"}},
+    "up": {"summary": "Голос «за»", "value": {"value": "up"}},
+    "down": {"summary": "Голос «против»", "value": {"value": "down"}},
 }
 
 
@@ -63,7 +68,7 @@ VOTE_EXAMPLES: dict[str, Any] = {
     "/cards",
     response_model=list[schemas.Card],
     tags=["Cards"],
-    summary="All cards on the board",
+    summary="Все карточки доски",
     responses={**AUTH_ERRORS, 422: VALIDATION_ERROR},
 )
 def list_cards(
@@ -71,29 +76,29 @@ def list_cards(
     db: DbSession,
     board: BoardThresholds,
     column: Annotated[
-        CardColumn | None, Query(description="Only cards that are in this column right now.")
+        CardColumn | None, Query(description="Только карточки, которые сейчас в этой колонке.")
     ] = None,
     type: Annotated[
         CardType | None,
-        Query(description="Only cards of this type. Accepted and rejected cards keep their type."),
+        Query(description="Только карточки этого типа. Принятые и отклонённые карточки сохраняют свой тип."),
     ] = None,
     author_id: Annotated[
         uuid.UUID | None,
-        Query(description='Only cards by this user. Use your own id from `GET /api/me` for "my cards".'),
+        Query(description="Только карточки этого пользователя. Для «моих карточек» возьмите свой id из `GET /api/me`."),
     ] = None,
     q: Annotated[
         str | None,
-        Query(max_length=100, description="Case-insensitive search in the title and description."),
+        Query(max_length=100, description="Поиск по заголовку и описанию без учёта регистра."),
     ] = None,
-    sort: Annotated[CardSort, Query(description="Order of the list.")] = CardSort.new,
+    sort: Annotated[CardSort, Query(description="Порядок списка.")] = CardSort.new,
 ) -> list[schemas.Card]:
-    """Every card on your stream's board, with everything needed to draw it: votes, score,
-    your own vote (`my_vote`), the comment count and the author.
+    """Все карточки доски со всем, что нужно для отрисовки: голоса, счёт, ваш голос
+    (`my_vote`), число комментариев и автор.
 
-    **To render the board**, call this without filters and group the cards by `card.column`.
+    **Чтобы нарисовать доску**, вызовите без фильтров и сгруппируйте карточки по `card.column`.
 
-    All filters are optional and can be combined. They are handy in Swagger, or for a user
-    page (`author_id`).
+    Все фильтры необязательные и сочетаются друг с другом. Они удобны в Swagger или для
+    страницы пользователя (`author_id`).
     """
     return services.list_card_schemas(
         db, actor, board, column=column, card_type=type, author_id=author_id, search=q, sort=sort
@@ -105,7 +110,7 @@ def list_cards(
     response_model=schemas.Card,
     status_code=status.HTTP_201_CREATED,
     tags=["Cards"],
-    summary="Create a card",
+    summary="Создать карточку",
     responses={**AUTH_ERRORS, 422: VALIDATION_ERROR},
 )
 def create_card(
@@ -114,13 +119,13 @@ def create_card(
     db: DbSession,
     board: BoardThresholds,
 ) -> schemas.Card:
-    """Post a new card as yourself. Only `title` and `type` are required.
+    """Публикует новую карточку от вашего имени. Обязательны только `title` и `type`.
 
-    `type` is `event`, `idea` or `question`. Only votes can move a card to
-    *accepted* or *rejected*.
+    `type` — `event`, `idea` или `question`. В *accepted* и *rejected* карточку переносят
+    только голоса. `date` — Unix-время в секундах.
 
-    It answers `201 Created` with the new card, the same shape as in `GET /api/cards`, so you
-    can add it straight to your state.
+    Ответ — `201 Created` с новой карточкой в том же формате, что и в `GET /api/cards`, так что
+    её можно сразу добавить в состояние.
     """
     card = models.Card(stream_id=actor.stream_id, author_id=actor.user_id, **body.model_dump())
     db.add(card)
@@ -132,12 +137,12 @@ def create_card(
     "/cards/{card_id}",
     response_model=schemas.CardDetail,
     tags=["Cards"],
-    summary="One card with its comments",
+    summary="Одна карточка с комментариями",
     responses={**AUTH_ERRORS, 404: not_found(CARD_NOT_FOUND)},
 )
 def get_card(card_id: CardId, actor: CurrentActor, db: DbSession, board: BoardThresholds) -> schemas.CardDetail:
-    """The same fields as in the list, plus `comments`: all of them, oldest first, each with
-    its author. Use it for a card page or modal."""
+    """Те же поля, что и в списке, плюс `comments`: все комментарии, от старых к новым, каждый
+    со своим автором. Подходит для страницы или модального окна карточки."""
     card = services.get_card(db, actor, card_id)
     return services.card_detail_schema(db, actor, card, board)
 
@@ -146,10 +151,10 @@ def get_card(card_id: CardId, actor: CurrentActor, db: DbSession, board: BoardTh
     "/cards/{card_id}",
     response_model=schemas.Card,
     tags=["Cards"],
-    summary="Edit your card",
+    summary="Изменить свою карточку",
     responses={
         **AUTH_ERRORS,
-        403: forbidden("Only the author can edit this card."),
+        403: forbidden(ONLY_AUTHOR_EDITS),
         404: not_found(CARD_NOT_FOUND),
         422: VALIDATION_ERROR,
     },
@@ -161,15 +166,15 @@ def update_card(
     db: DbSession,
     board: BoardThresholds,
 ) -> schemas.Card:
-    """Change **your own** card. Send only the fields you want to change. Omitted fields stay
-    as they are, and `null` clears `description`, `preview` or `date`.
+    """Изменяет **вашу** карточку. Отправляйте только поля, которые хотите поменять:
+    пропущенные останутся как есть, а `null` очищает `description`, `preview` или `date`.
 
-    Changing `type` moves the card between the event, idea and question columns. Votes stay
-    as they are, so an accepted card stays accepted.
+    Смена `type` переносит карточку между колонками event, idea и question. Голоса при этом не
+    меняются, так что принятая карточка останется принятой.
     """
     card = services.get_card(db, actor, card_id)
     if card.author_id != actor.user_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only the author can edit this card.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ONLY_AUTHOR_EDITS)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(card, field, value)
     db.commit()
@@ -181,19 +186,19 @@ def update_card(
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     tags=["Cards"],
-    summary="Delete your card",
+    summary="Удалить свою карточку",
     responses={
         **AUTH_ERRORS,
-        403: forbidden("Only the author can delete this card."),
+        403: forbidden(ONLY_AUTHOR_DELETES),
         404: not_found(CARD_NOT_FOUND),
     },
 )
 def delete_card(card_id: CardId, actor: CurrentActor, db: DbSession) -> Response:
-    """Delete **your own** card together with its votes and comments. It answers
-    `204 No Content` with an **empty body**, so don't call `response.json()` on it."""
+    """Удаляет **вашу** карточку вместе с её голосами и комментариями. Ответ —
+    `204 No Content` с **пустым телом**, так что не вызывайте на нём `response.json()`."""
     card = services.get_card(db, actor, card_id)
     if card.author_id != actor.user_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only the author can delete this card.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ONLY_AUTHOR_DELETES)
     db.delete(card)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -208,10 +213,10 @@ def delete_card(card_id: CardId, actor: CurrentActor, db: DbSession) -> Response
     "/cards/{card_id}/vote",
     response_model=schemas.Card,
     tags=["Votes"],
-    summary="Vote on a card (up or down)",
+    summary="Проголосовать за карточку (за или против)",
     responses={
         **AUTH_ERRORS,
-        403: forbidden("You can't vote on your own card."),
+        403: forbidden(NO_SELF_VOTE),
         404: not_found(CARD_NOT_FOUND),
         422: VALIDATION_ERROR,
     },
@@ -223,18 +228,18 @@ def vote_card(
     db: DbSession,
     board: BoardThresholds,
 ) -> schemas.Card:
-    """Set your vote on someone else's card. You get **one vote per card**:
+    """Ставит ваш голос на чужую карточку. У вас **один голос на карточку**:
 
-    - voting `up` when you already voted `down` changes your vote, so the score moves by 2;
-    - sending the same vote again changes nothing (it's safe to repeat);
-    - voting on your own card gives 403.
+    - голос `up` поверх вашего `down` меняет голос, и счёт сдвигается на 2;
+    - повтор того же голоса ничего не меняет (повторять безопасно);
+    - голос за свою карточку — 403.
 
-    It answers with the updated card, so you can replace it in your state. If its score reaches
-    a threshold, its `column` is already `accepted` or `rejected`.
+    Ответ — обновлённая карточка, её можно сразу заменить в состоянии. Если счёт дошёл до
+    порога, её `column` уже `accepted` или `rejected`.
     """
     card = services.get_card(db, actor, card_id)
     if card.author_id == actor.user_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You can't vote on your own card.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=NO_SELF_VOTE)
     value = 1 if body.value == VoteValue.up else -1
     db.execute(
         pg_insert(models.Vote)
@@ -251,12 +256,12 @@ def vote_card(
     "/cards/{card_id}/vote",
     response_model=schemas.Card,
     tags=["Votes"],
-    summary="Remove your vote",
+    summary="Отозвать свой голос",
     responses={**AUTH_ERRORS, 404: not_found(CARD_NOT_FOUND)},
 )
 def remove_vote(card_id: CardId, actor: CurrentActor, db: DbSession, board: BoardThresholds) -> schemas.Card:
-    """Take your vote back. If you hadn't voted, nothing happens. Either way it answers with the
-    updated card (with `my_vote: null`)."""
+    """Забирает ваш голос. Если вы не голосовали, ничего не произойдёт. В любом случае ответ —
+    обновлённая карточка (с `my_vote: null`)."""
     card = services.get_card(db, actor, card_id)
     db.execute(
         delete(models.Vote).where(
@@ -278,11 +283,11 @@ def remove_vote(card_id: CardId, actor: CurrentActor, db: DbSession, board: Boar
     "/cards/{card_id}/comments",
     response_model=list[schemas.Comment],
     tags=["Comments"],
-    summary="Comments on a card",
+    summary="Комментарии к карточке",
     responses={**AUTH_ERRORS, 404: not_found(CARD_NOT_FOUND)},
 )
 def list_card_comments(card_id: CardId, actor: CurrentActor, db: DbSession) -> list[schemas.Comment]:
-    """All comments on the card, oldest first. `GET /api/cards/{card_id}` includes them too."""
+    """Все комментарии к карточке, от старых к новым. Они же есть в `GET /api/cards/{card_id}`."""
     card = services.get_card(db, actor, card_id)
     return services.comment_schemas(db, actor, card)
 
@@ -292,14 +297,14 @@ def list_card_comments(card_id: CardId, actor: CurrentActor, db: DbSession) -> l
     response_model=schemas.Comment,
     status_code=status.HTTP_201_CREATED,
     tags=["Comments"],
-    summary="Comment on a card",
+    summary="Прокомментировать карточку",
     responses={**AUTH_ERRORS, 404: not_found(CARD_NOT_FOUND), 422: VALIDATION_ERROR},
 )
 def create_comment(
     card_id: CardId, body: schemas.CommentCreate, actor: CurrentActor, db: DbSession
 ) -> schemas.Comment:
-    """Write a comment on any card in your stream, your own included. Comments are flat, so
-    there are no replies to comments. It answers `201 Created` with the new comment."""
+    """Добавляет комментарий к любой карточке на доске, включая ваши. Комментарии плоские:
+    отвечать на комментарии нельзя. Ответ — `201 Created` с новым комментарием."""
     card = services.get_card(db, actor, card_id)
     comment = models.Comment(
         stream_id=actor.stream_id, card_id=card.id, author_id=actor.user_id, text=body.text

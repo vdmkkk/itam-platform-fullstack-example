@@ -87,7 +87,7 @@ def test_students_without_a_stream_are_isolated_too(client, alice, nora):
     assert nora_card["id"] not in ids(client.get("/api/cards", headers=alice.headers).json())
     assert client.get(f"/api/cards/{alice_card['id']}", headers=nora.headers).status_code == 404
     assert client.get(f"/api/cards/{nora_card['id']}", headers=alice.headers).status_code == 404
-    assert me(client, nora)["stream"] == {"id": None, "code": None, "title": None, "name": "No stream"}
+    assert me(client, nora)["stream"] == {"id": None, "code": None, "title": None, "name": "Без потока"}
 
 
 def test_each_stream_gets_its_own_seeded_board(client, alice, carol):

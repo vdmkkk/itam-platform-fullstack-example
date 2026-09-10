@@ -12,18 +12,18 @@ router = APIRouter(tags=["Board"])
 @router.get(
     "/board",
     response_model=schemas.Board,
-    summary="Board overview: columns, thresholds, your stream",
+    summary="Обзор доски: колонки и пороги голосования",
     responses=AUTH_ERRORS,
 )
 def get_board(actor: CurrentActor, db: DbSession, board: BoardThresholds) -> schemas.Board:
-    """Everything about the board **except** the cards themselves:
+    """Всё о доске, **кроме** самих карточек:
 
-    - `stream`: the work group this board belongs to (yours);
-    - `accept_threshold` / `reject_threshold`: how many net votes move a card to
+    - `accept_threshold` / `reject_threshold`: сколько голосов в сумме переносят карточку в
       *accepted* / *rejected*;
-    - `columns`: all five columns in display order, with how many cards each holds right now.
+    - `columns`: все пять колонок в порядке отображения и сколько карточек в каждой прямо сейчас;
+    - `stream`: поток курса, которому принадлежит доска.
 
-    Then load the cards with `GET /api/cards` and group them by `card.column`.
+    Потом загрузите карточки через `GET /api/cards` и сгруппируйте их по `card.column`.
     """
     cards = services.list_card_schemas(db, actor, board)
     counts = Counter(card.column for card in cards)

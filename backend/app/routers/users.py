@@ -8,15 +8,16 @@ from sqlalchemy import func, select
 
 from app import models, schemas, services
 from app.deps import CurrentActor, DbSession
-from app.docs import AUTH_ERRORS, EMAIL_CONFLICT, VALIDATION_ERROR, not_found
+from app.docs import AUTH_ERRORS, EMAIL_CONFLICT, EMAIL_TAKEN, EMAIL_TAKEN_DETAIL, VALIDATION_ERROR, not_found
 from app.errors import FieldProblem
+from app.services import USER_NOT_FOUND
 
 router = APIRouter()
 
 PROFILE_EXAMPLES: dict[str, Any] = {
-    "status": {"summary": "Set a status", "value": {"status": "Ищу команду на хакатон"}},
+    "status": {"summary": "Поставить статус", "value": {"status": "Ищу команду на хакатон"}},
     "full": {
-        "summary": "Fill in the whole profile",
+        "summary": "Заполнить весь профиль",
         "value": {
             "name": "Аня Петрова",
             "email": "anya@example.com",
@@ -26,16 +27,16 @@ PROFILE_EXAMPLES: dict[str, Any] = {
             "telegram": "@anya_codes",
         },
     },
-    "clear": {"summary": "Clear the avatar and the status", "value": {"avatar_url": None, "status": None}},
+    "clear": {"summary": "Убрать аватар и статус", "value": {"avatar_url": None, "status": None}},
 }
 
 
-@router.get("/me", response_model=schemas.Profile, tags=["Profile"], summary="Your profile", responses=AUTH_ERRORS)
+@router.get("/me", response_model=schemas.Profile, tags=["Profile"], summary="Ваш профиль", responses=AUTH_ERRORS)
 def get_me(actor: CurrentActor) -> schemas.Profile:
-    """Who you are in this API, including your private `email` and your `stream`.
+    """Кто вы в этом API, включая ваш личный `email` и `stream`.
 
-    Your very first request creates the profile from your course platform profile (name,
-    email and avatar). After that it's yours to change with `PATCH /api/me`.
+    Самый первый запрос создаёт профиль из вашего профиля на платформе курса (имя, email и
+    аватар). После этого он ваш: меняйте его через `PATCH /api/me`.
     """
     return services.profile_schema(actor)
 
@@ -44,7 +45,7 @@ def get_me(actor: CurrentActor) -> schemas.Profile:
     "/me",
     response_model=schemas.Profile,
     tags=["Profile"],
-    summary="Edit your profile",
+    summary="Изменить профиль",
     responses={**AUTH_ERRORS, 409: EMAIL_CONFLICT, 422: VALIDATION_ERROR},
 )
 def update_me(
@@ -52,18 +53,18 @@ def update_me(
     actor: CurrentActor,
     db: DbSession,
 ) -> schemas.Profile:
-    """Change your profile. Send only the fields you want to change.
+    """Изменяет ваш профиль. Отправляйте только поля, которые хотите поменять.
 
-    The server validates everything, a good match for client-side validation in your form:
+    Сервер проверяет всё, так что это хороший ориентир для валидации в вашей форме:
 
-    - `name`: 1-80 characters. It can't be cleared.
-    - `email`: a valid address, not used by anyone else in your stream (otherwise **409**
-      with `errors: [{"field": "email", "message": "This email is already in use"}]`).
-    - `avatar_url`: an http(s) image link or a `data:image/...` URI.
-    - `telegram`: 5-32 letters, digits or underscores. The `@` is optional.
-    - `status` up to 100 characters, `bio` up to 1000.
+    - `name`: 1-80 символов, очистить нельзя.
+    - `email`: корректный адрес, которым не пользуется другой участник (иначе **409** с
+      `errors: [{"field": "email", "message": "Этот email уже занят"}]`).
+    - `avatar_url`: ссылка на картинку http(s) или `data:image/...` URI.
+    - `telegram`: 5-32 латинских буквы, цифры или подчёркивания; `@` необязателен.
+    - `status` — до 100 символов, `bio` — до 1000.
 
-    None of this changes your course platform profile.
+    Ничего из этого не меняет ваш профиль на платформе курса.
     """
     changes = body.model_dump(exclude_unset=True)
     email = changes.get("email")
@@ -79,10 +80,7 @@ def update_me(
         )
         if taken is not None:
             raise FieldProblem(
-                status.HTTP_409_CONFLICT,
-                field="email",
-                message="This email is already in use",
-                detail="This email is already in use by another member of your stream.",
+                status.HTTP_409_CONFLICT, field="email", message=EMAIL_TAKEN, detail=EMAIL_TAKEN_DETAIL
             )
     for field, value in changes.items():
         setattr(actor.user, field, value)
@@ -94,22 +92,22 @@ def update_me(
     "/users",
     response_model=list[schemas.User],
     tags=["People"],
-    summary="Members of your stream",
+    summary="Участники доски",
     responses={**AUTH_ERRORS, 422: VALIDATION_ERROR},
 )
 def list_users(
     request: Request,
     actor: CurrentActor,
     db: DbSession,
-    q: Annotated[str | None, Query(max_length=80, description="Case-insensitive search by name.")] = None,
+    q: Annotated[str | None, Query(max_length=80, description="Поиск по имени без учёта регистра.")] = None,
     include_demo: Annotated[
-        bool, Query(description="Include the demo people who fill new boards with examples.")
+        bool, Query(description="Включать демо-пользователей, которые наполняют новые доски примерами.")
     ] = True,
 ) -> list[schemas.User]:
-    """Everyone in your stream: real people first, sorted by name, then the demo people.
+    """Все участники: сначала реальные люди по алфавиту, затем демо-пользователи.
 
-    The list includes classmates who haven't used the API yet. They appear with their course
-    platform name and avatar until they edit their profile here.
+    В списке есть и однокурсники, которые ещё не обращались к API. Они показываются с именем и
+    аватаром с платформы курса, пока не изменят профиль здесь.
     """
     state = request.app.state
     services.sync_roster(db, actor, state.platform, state.roster_throttle)
@@ -127,15 +125,15 @@ def list_users(
     "/users/{user_id}",
     response_model=schemas.UserDetail,
     tags=["People"],
-    summary="One member, with activity counters",
-    responses={**AUTH_ERRORS, 404: not_found("User not found in your stream.")},
+    summary="Один участник со счётчиками активности",
+    responses={**AUTH_ERRORS, 404: not_found(USER_NOT_FOUND)},
 )
 def get_user(
-    user_id: Annotated[uuid.UUID, Path(description="User id, e.g. `card.author.id`.")],
+    user_id: Annotated[uuid.UUID, Path(description="Id пользователя, например `card.author.id`.")],
     actor: CurrentActor,
     db: DbSession,
 ) -> schemas.UserDetail:
-    """A member's public profile plus `cards_count`, `comments_count` and `total_score`, for a
-    user page. Get their cards with `GET /api/cards?author_id={user_id}`."""
+    """Публичный профиль участника плюс `cards_count`, `comments_count` и `total_score` — для
+    страницы пользователя. Его карточки: `GET /api/cards?author_id={user_id}`."""
     user = services.get_member(db, actor, user_id)
     return services.user_detail_schema(db, user, actor)

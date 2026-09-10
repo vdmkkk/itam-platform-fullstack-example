@@ -2,7 +2,8 @@
 
 Every error has the same shape: `{"detail": "a human-readable sentence"}`.
 Validation errors also carry `errors: [{field, message}]`, so forms can
-highlight the exact input that is wrong.
+highlight the exact input that is wrong. Students show these messages in
+their UI, so they are in Russian, pydantic's own messages included.
 """
 
 from __future__ import annotations
@@ -18,10 +19,26 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
-FRIENDLY_MESSAGES = {
-    "missing": "This field is required",
-    "extra_forbidden": "Unknown field: check the spelling, or look up the allowed fields in /docs",
+REQUIRED = "Обязательное поле"
+BODY_NOT_JSON = "Отправьте тело запроса JSON-объектом с заголовком Content-Type: application/json"
+UUID_EXPECTED = "Нужен UUID, например 3f8e9c1a-5b2d-4e7f-9a61-2c4b8d0e1f23"
+
+# Pydantic error types whose Russian message needs no context.
+MESSAGES = {
+    "missing": REQUIRED,
+    "extra_forbidden": "Неизвестное поле: проверьте, как оно пишется, или посмотрите список полей в /docs",
+    "string_type": "Нужна строка",
+    "int_type": "Нужно целое число",
+    "int_parsing": "Нужно целое число",
+    "int_from_float": "Нужно целое число, без дробной части",
+    "bool_type": "Нужно true или false",
+    "bool_parsing": "Нужно true или false",
+    "uuid_type": UUID_EXPECTED,
+    "uuid_parsing": UUID_EXPECTED,
 }
+
+# An explicit `null` for a field that can't be null fails with one of these.
+NOT_NULL_TYPES = {"string_type", "int_type", "bool_type", "uuid_type", "enum"}
 
 # Errors located at the body itself, which usually means "no JSON was sent".
 BODY_SHAPE_ERRORS = {"missing", "model_attributes_type", "dict_type", "model_type"}
@@ -40,6 +57,20 @@ class FieldProblem(Exception):
         self.detail = detail or f"{field}: {message}"
 
 
+def _plural(count: int, one: str, few: str, many: str) -> str:
+    """Russian plural forms: 1 символ, 2 символа, 5 символов."""
+    tens, units = count % 100, count % 10
+    if units == 1 and tens != 11:
+        return one
+    if 2 <= units <= 4 and not 12 <= tens <= 14:
+        return few
+    return many
+
+
+def _characters(count: int) -> str:
+    return f"{count} {_plural(count, 'символ', 'символа', 'символов')}"
+
+
 def _field_name(loc: tuple[Any, ...]) -> str:
     parts = [str(part) for part in loc]
     if parts and parts[0] in LOCATION_PREFIXES:
@@ -47,16 +78,40 @@ def _field_name(loc: tuple[Any, ...]) -> str:
     return ".".join(parts) or "body"
 
 
+def _message(error: dict[str, Any]) -> str:
+    """Pydantic's message, in Russian. Our own validators already raise Russian messages."""
+    kind = error.get("type", "")
+    ctx = error.get("ctx") or {}
+    if kind in NOT_NULL_TYPES and "input" in error and error["input"] is None:
+        return "Не может быть null"
+    if kind in MESSAGES:
+        return MESSAGES[kind]
+    if kind == "string_too_short":
+        minimum = ctx.get("min_length", 1)
+        return "Не может быть пустым" if minimum == 1 else f"Минимум {_characters(minimum)}"
+    if kind == "string_too_long":
+        return f"Максимум {_characters(ctx.get('max_length', 0))}"
+    if kind == "greater_than_equal":
+        return f"Должно быть не меньше {ctx.get('ge')}"
+    if kind == "less_than_equal":
+        return f"Должно быть не больше {ctx.get('le')}"
+    if kind == "enum":
+        # ctx: {"expected": "'event', 'idea' or 'question'"}
+        return f"Допустимые значения: {str(ctx.get('expected', '')).replace(' or ', ', ')}"
+    if kind == "value_error" and "email" in str(error.get("msg", "")).lower():
+        return "Некорректный email"
+    return str(error.get("msg", "Некорректное значение")).removeprefix("Value error, ")
+
+
 def _describe(error: dict[str, Any]) -> tuple[str, str]:
     kind = error.get("type", "")
     loc = tuple(error.get("loc", ()))
     if kind == "json_invalid":
         reason = error.get("ctx", {}).get("error", "syntax error")
-        return "body", f"The request body is not valid JSON ({reason})"
+        return "body", f"Тело запроса — не валидный JSON ({reason})"
     if loc == ("body",) and kind in BODY_SHAPE_ERRORS:
-        return "body", "Send the request body as a JSON object, with the header Content-Type: application/json"
-    message = FRIENDLY_MESSAGES.get(kind, error.get("msg", "Invalid value"))
-    return _field_name(loc), message.removeprefix("Value error, ")
+        return "body", BODY_NOT_JSON
+    return _field_name(loc), _message(error)
 
 
 async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -64,7 +119,7 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
     for error in exc.errors():
         field, message = _describe(error)
         errors.append({"field": field, "message": message})
-    detail = "; ".join(f"{e['field']}: {e['message']}" for e in errors) or "Invalid request"
+    detail = "; ".join(f"{e['field']}: {e['message']}" for e in errors) or "Некорректный запрос"
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 
@@ -84,11 +139,14 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException) -
     docs = f"{request.scope.get('root_path', '')}/docs"
     if exc.status_code == 404 and detail == "Not Found":
         detail = (
-            f"There is no endpoint {request.method} {request.url.path}. Board endpoints start "
-            f"with /api; see {docs} for the full list."
+            f"Эндпоинта {request.method} {request.url.path} нет. Эндпоинты доски начинаются "
+            f"с /api, полный список — в {docs}."
         )
     elif exc.status_code == 405 and detail == "Method Not Allowed":
-        detail = f"{request.method} is not allowed on {request.url.path}. Check the method in {docs}."
+        detail = (
+            f"Метод {request.method} не поддерживается для {request.url.path}. "
+            f"Проверьте метод в {docs}."
+        )
     return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=headers)
 
 
@@ -125,8 +183,8 @@ class CatchAllErrorsMiddleware:
             response = JSONResponse(
                 status_code=500,
                 content={
-                    "detail": "Something went wrong on the server. It's not your fault; please "
-                    "tell the course team if it keeps happening."
+                    "detail": "Что-то сломалось на сервере. Вы тут ни при чём; если это "
+                    "повторяется, сообщите команде курса."
                 },
             )
             await response(scope, receive, send)

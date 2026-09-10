@@ -48,7 +48,7 @@ def use_friendly_validation_errors(spec: dict[str, Any]) -> None:
     codegen produces a single error type.
     """
     friendly = {
-        "description": "A parameter is invalid, for example the id is not a UUID.",
+        "description": "Некорректный параметр, например id — не UUID.",
         "content": {
             "application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}
         },
@@ -61,6 +61,15 @@ def use_friendly_validation_errors(spec: dict[str, Any]) -> None:
     component_schemas = spec.get("components", {}).get("schemas", {})
     component_schemas.pop("HTTPValidationError", None)
     component_schemas.pop("ValidationError", None)
+
+
+def translate_default_descriptions(spec: dict[str, Any]) -> None:
+    """FastAPI describes every success as "Successful Response"; the docs are in Russian."""
+    for methods in spec.get("paths", {}).values():
+        for operation in methods.values():
+            for response in operation.get("responses", {}).values():
+                if response.get("description") == "Successful Response":
+                    response["description"] = "Успешный ответ"
 
 
 def create_app(
@@ -90,12 +99,12 @@ def create_app(
     app = FastAPI(
         title="ITAM Board API",
         version="1.0.0",
-        summary="A Trello-like board of events, ideas and questions for the Frontend (ITAM) course.",
+        summary="Доска событий, идей и вопросов в духе Trello для курса Frontend (ITAM).",
         description=api_description(settings),
         openapi_tags=TAGS,
         # The edge proxy strips this prefix; re-advertise it so Swagger's calls go through it.
         root_path=settings.root_path.rstrip("/"),
-        servers=[{"url": public_url, "description": "Public API"}] if public_url else None,
+        servers=[{"url": public_url, "description": "Публичный API"}] if public_url else None,
         root_path_in_servers=not public_url,
         generate_unique_id_function=operation_id,
         separate_input_output_schemas=False,
@@ -137,7 +146,9 @@ def create_app(
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
-            use_friendly_validation_errors(build_openapi())
+            spec = build_openapi()
+            use_friendly_validation_errors(spec)
+            translate_default_descriptions(spec)
         return app.openapi_schema  # type: ignore[return-value]
 
     app.openapi = openapi  # type: ignore[method-assign]

@@ -7,21 +7,21 @@ from app.deps import DbSession
 
 router = APIRouter(tags=["System"])
 
+DATABASE_DOWN = "База данных недоступна."
+
 
 @router.get(
     "/health",
     response_model=schemas.Health,
-    summary="Health check",
-    responses={503: {"model": schemas.ErrorResponse, "description": "The database is unreachable."}},
+    summary="Проверка работоспособности",
+    responses={503: {"model": schemas.ErrorResponse, "description": DATABASE_DOWN}},
 )
 def health(db: DbSession) -> schemas.Health:
-    """Returns `{"status": "ok"}` when the API and its database are up. It needs **no token**."""
+    """Возвращает `{"status": "ok"}`, когда API и его база данных работают. Токен **не нужен**."""
     try:
         db.execute(text("SELECT 1"))
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The database is unreachable."
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=DATABASE_DOWN) from exc
     return schemas.Health(status="ok")
 
 

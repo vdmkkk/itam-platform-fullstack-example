@@ -33,6 +33,12 @@ def initials_avatar(initials: str, color: str) -> str:
     )
 
 
+def evening_in(now: dt.datetime, days: int) -> int:
+    """19:00 Moscow time (16:00 UTC), `days` days from now, as Unix seconds."""
+    day = (now + dt.timedelta(days=days)).date()
+    return int(dt.datetime.combine(day, dt.time(16), tzinfo=dt.UTC).timestamp())
+
+
 def banner(emoji: str, start: str, end: str) -> str:
     return svg_data_uri(
         '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">'
@@ -101,11 +107,11 @@ CARDS = (
     DemoCard(
         author="team",
         type=CardType.event,
-        title="Знакомство потока в Zoom",
+        title="Знакомство в Zoom",
         hours_ago=70,
         description=(
             "Первый общий созвон: расскажем, как устроен курс, покажем эту доску и "
-            "познакомимся друг с другом. Ссылку пришлём в чат потока."
+            "познакомимся друг с другом. Ссылку пришлём в чат курса."
         ),
         date_in_days=3,
         preview=banner("🎉", "#6366f1", "#ec4899"),
@@ -209,7 +215,7 @@ CARDS = (
         hours_ago=6,
         description="Хочу поднять свою идею повыше 😅",
         comments=(
-            ("team", "Нет: сервер ответит 403. За карточку голосуют только другие участники потока."),
+            ("team", "Нет: сервер ответит 403. За карточку голосуют только другие участники."),
         ),
     ),
 )
@@ -248,9 +254,7 @@ def seed_stream(db: Session, stream_id: uuid.UUID, now: dt.datetime | None = Non
             type=demo.type,
             description=demo.description,
             preview=demo.preview,
-            date=(now.date() + dt.timedelta(days=demo.date_in_days))
-            if demo.date_in_days is not None
-            else None,
+            date=evening_in(now, demo.date_in_days) if demo.date_in_days is not None else None,
             created_at=created_at,
             updated_at=created_at,
         )

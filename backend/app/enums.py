@@ -2,17 +2,19 @@
 
 Each one becomes a named schema in OpenAPI, so codegen turns it into a
 TypeScript union such as `type CardType = "event" | "idea" | "question"`.
+The docstrings become the schema descriptions students read in Swagger,
+so they are in Russian.
 """
 
 import enum
 
 
 class CardType(str, enum.Enum):
-    """What a card is about. The author picks it and can change it at any time.
+    """О чём карточка. Тип выбирает автор и может поменять его в любой момент.
 
-    - `event`: something that happens on a date, like a meetup, a deadline or a hackathon.
-    - `idea`: a proposal for the stream to vote on.
-    - `question`: something you want answered.
+    - `event`: то, что происходит в определённый день: встреча, дедлайн, хакатон.
+    - `idea`: предложение, за которое голосуют участники.
+    - `question`: то, на что вы хотите получить ответ.
     """
 
     event = "event"
@@ -21,11 +23,11 @@ class CardType(str, enum.Enum):
 
 
 class CardColumn(str, enum.Enum):
-    """The board column a card is drawn in.
+    """Колонка доски, в которой рисуется карточка.
 
-    `event`, `idea` and `question` mirror the card's `type`. A card moves to
-    `accepted` or `rejected` when its score reaches a vote threshold (see
-    `GET /api/board`). It keeps its original `type` while it is there.
+    `event`, `idea` и `question` повторяют `type` карточки. В `accepted` или
+    `rejected` карточка переходит, когда её счёт достигает порога (см.
+    `GET /api/board`), и сохраняет при этом свой исходный `type`.
     """
 
     event = "event"
@@ -36,18 +38,18 @@ class CardColumn(str, enum.Enum):
 
 
 class VoteValue(str, enum.Enum):
-    """A vote on a card. `up` adds 1 to the card's score and `down` subtracts 1."""
+    """Голос за карточку: `up` добавляет к её счёту 1, `down` отнимает 1."""
 
     up = "up"
     down = "down"
 
 
 class CardSort(str, enum.Enum):
-    """The order of a card list.
+    """Порядок списка карточек.
 
-    - `new`: newest first (the default).
-    - `old`: oldest first.
-    - `top`: highest score first. Cards with the same score are newest first.
+    - `new`: сначала новые (по умолчанию).
+    - `old`: сначала старые.
+    - `top`: сначала с наибольшим счётом; при равном счёте — сначала новые.
     """
 
     new = "new"
