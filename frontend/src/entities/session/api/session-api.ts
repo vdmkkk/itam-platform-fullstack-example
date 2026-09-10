@@ -1,8 +1,8 @@
 import { request, type Profile, type ProfileUpdate } from '@/shared/api'
 
-/** Кто я. С `token` — проверить конкретный токен (перед входом) */
-export function getMe(token?: string) {
-  return request<Profile>('/api/me', { token })
+/** Кто я: владелец токена из `shared/api/client.ts` */
+export function getMe() {
+  return request<Profile>('/api/me')
 }
 
 export function updateMe(changes: ProfileUpdate) {

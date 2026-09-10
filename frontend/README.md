@@ -11,14 +11,20 @@
 
 Нужен Node.js 22.22 или новее.
 
-```sh
-cd frontend
-npm install
-npm run dev
-```
+1. Скопируйте свой токен курса (страница курса → вкладка «API проекта») и вставьте его в
+   константу `COURSE_TOKEN` в `src/shared/api/client.ts`.
+2. Запустите:
 
-Откройте http://localhost:5173 и вставьте токен курса (страница курса → вкладка «API проекта»).
-Токен сохранится в браузере, так что при следующем запуске вводить его не придётся.
+   ```sh
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+3. Откройте http://localhost:5173.
+
+Входа в приложении нет: API узнаёт вас по токену, который уходит в заголовке `X-Course-Token`
+с каждым запросом. Держать токен в коде обычно нельзя, но этот открывает только учебный API.
 
 | Команда | Что делает |
 | --- | --- |
@@ -32,7 +38,6 @@ npm run dev
 
 ## Что умеет приложение
 
-- Вход по токену курса. Токен хранится в `localStorage`, «Выйти» его забывает.
 - Доска из пяти колонок: События, Идеи, Вопросы, Принято, Отклонено. Карточка попадает в
   колонку по полю `column`, которое считает сервер.
 - Поиск, «Только мои» и сортировка: сначала новые, старые или популярные.
@@ -43,6 +48,8 @@ npm run dev
   (написать, удалить свой).
 - Страница пользователя: профиль, счётчики и его карточки. На своей странице можно
   отредактировать профиль с клиентской и серверной валидацией (например, «Этот email уже занят»).
+- В шапке — вы, владелец токена. Если токен не подошёл, вместо страницы будет причина и кнопка
+  «Повторить».
 
 ## Стек
 
@@ -52,7 +59,7 @@ npm run dev
 | React 19 | Интерфейс |
 | React Router 8 | Страницы |
 | react-hook-form | Формы и валидация |
-| Zustand | Сторы: карточки и авторизация |
+| Zustand | Сторы: карточки и текущий пользователь |
 | openapi-typescript | Типы API из Swagger (запускается через `npx`, в зависимостях его нет) |
 | CSS Modules | Стили лежат рядом с компонентами |
 | oxlint | Линтер (его ставит шаблон Vite) |
@@ -62,10 +69,10 @@ npm run dev
 ```
 src/
 ├── app/        точка входа, роутинг, каркас страниц, глобальные стили
-├── pages/      страницы: board, card, user, login, not-found
+├── pages/      страницы: board, card, user, not-found
 ├── widgets/    крупные блоки страниц: header, board-columns, card-modal, card-comments
-├── features/   действия пользователя: login, card-form, vote, filter-cards,
-│               add-comment, delete-card, delete-comment, edit-profile
+├── features/   действия пользователя: card-form, vote, filter-cards, add-comment,
+│               delete-card, delete-comment, edit-profile
 ├── entities/   сущности: card, user, comment, session — их API, сторы и отображение
 └── shared/     общее без бизнес-логики: api, ui, lib, config
 ```
@@ -121,7 +128,8 @@ src/
 - Swagger как документация: https://courses.salut.uno/example-backend/frontend-itam/docs
 - `npm run api:types` генерирует `shared/api/schema.d.ts`, а `shared/api/types.ts` даёт типам
   короткие имена (`Card`, `Profile`...).
-- Клиент `shared/api/client.ts`: `fetch`, заголовок `X-Course-Token`, `ApiError` с ошибками полей.
+- Клиент `shared/api/client.ts`: `fetch`, токен курса в константе `COURSE_TOKEN` и заголовок
+  `X-Course-Token` в каждом запросе, `ApiError` с ошибками полей.
 - Первый GET — `getCards`, первый POST — `createCard` (`entities/card/api/cards-api.ts`).
 - Union-типы из схемы: `CardType`, `CardColumn`, `VoteValue | null`. Ещё `Record<CardType, string>`
   (`entities/card/lib/columns.ts`), статус загрузки `'idle' | 'loading' | 'ready' | 'error'`
@@ -130,7 +138,7 @@ src/
 
 ### 13. Формы
 
-- Управляемые поля (controlled input) и submit: `features/login`, `features/add-comment`.
+- Управляемое поле (controlled input) и submit: `features/add-comment`.
 - `useForm`: `features/card-form` (создание и редактирование), `features/edit-profile`.
 - Клиентская валидация — правила в `register(...)`: `required`, `maxLength`, `pattern`.
 - Серверная валидация — `shared/lib/form-errors.ts`: `errors: [{ field, message }]` от API
@@ -140,8 +148,8 @@ src/
 
 ### 14. useRef, useMemo, useContext
 
-- `useRef`: автофокус в `features/login`. В `features/card-form` элемент нужен и нам, и
-  react-hook-form, поэтому там ref-колбэк отдаёт его обоим.
+- `useRef`: автофокус на первое поле формы в `features/card-form`. Элемент нужен и нам, и
+  react-hook-form, поэтому ref-колбэк отдаёт его обоим.
 - `useMemo`: `filterCards` в `pages/board`, `groupByColumn` в `widgets/board-columns`,
   карточки пользователя в `pages/user`.
 - `memo`: `CardPreview` не перерисовывается при вводе в поиск. Для этого `onOpen` должен быть
@@ -153,15 +161,15 @@ src/
 - Zustand, общий стор карточек `entities/card/model/cards-store.ts`: карточки, статус
   загрузки, фильтры и действия (загрузить, создать, изменить, удалить, проголосовать).
   Доска, модалка и страница пользователя берут данные из него.
-- Стор авторизации `entities/session/model/auth-store.ts`: токен сохраняется в `localStorage`
-  через `persist`, в сторе профиль, вход, выход и сохранение профиля. Страница пользователя
-  узнаёт из него, чья она, а шапка сама обновляется после сохранения профиля.
+- Стор авторизации `entities/session/model/auth-store.ts`: кто вы (`GET /api/me`), загрузка и
+  сохранение профиля. Страница пользователя узнаёт из него, чья она, а шапка сама обновляется
+  после сохранения профиля. Если токен не подошёл, `app/Layout.tsx` показывает ошибку из стора.
 - Селекторы: `useCardsStore((state) => state.cards)` подписывает компонент только на нужную часть.
   Из селектора нельзя возвращать новый массив (`state.cards.filter(...)`): это новый результат
   на каждый вызов и бесконечные перерисовки. Поэтому фильтруем в `useMemo`.
 - Стор против контекста: контекст передаёт значение вниз по дереву, а стор — это отдельное
-  хранилище с действиями. Из стора можно читать вне React (`useAuthStore.getState()` в
-  `auth-store.ts`), и он не перерисовывает всех потребителей подряд.
+  хранилище с действиями. Его можно прочитать и вне React (`useCardsStore.getState()`), и он
+  не перерисовывает всех потребителей подряд.
 
 ## Промежуточный шаг урока 14: фильтры на контексте
 

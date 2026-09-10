@@ -30,12 +30,6 @@
   text-decoration: none;
 }
 
-.nav {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .me {
   display: inline-flex;
   align-items: center;

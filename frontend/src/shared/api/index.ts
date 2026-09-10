@@ -1,2 +1,2 @@
-export { ApiError, getErrorMessage, request, setTokenGetter } from './client'
+export { ApiError, getErrorMessage, request } from './client'
 export type * from './types'

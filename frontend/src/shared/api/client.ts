@@ -2,6 +2,10 @@ import type { FieldError } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'https://courses.salut.uno/example-backend/frontend-itam'
 
+// Токен курса: страница курса → вкладка «API проекта». Вставьте сюда свой.
+// В коде его видно всем, но он открывает только учебный API, поэтому здесь так можно
+const COURSE_TOKEN = 'exb_wQJrgcI2bQf0jrfy69ViFPqQman3pver'
+
 /** Ошибка от API. `fieldErrors` — ошибки конкретных полей формы (приходят с 422 и 409). */
 export class ApiError extends Error {
   readonly status: number
@@ -15,26 +19,15 @@ export class ApiError extends Error {
   }
 }
 
-let getToken: () => string | null = () => null
-
-// По правилам FSD слой shared ничего не знает о сторах. Поэтому токен клиенту
-// «подсказывает» стор авторизации: он вызывает эту функцию один раз при запуске.
-export function setTokenGetter(getter: () => string | null) {
-  getToken = getter
-}
-
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
-  /** Токен для одного запроса — например, чтобы проверить новый токен до входа */
-  token?: string
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body } = options
-  const headers: Record<string, string> = {}
-  const token = options.token ?? getToken()
-  if (token) headers['X-Course-Token'] = token
+  // Токен уходит в каждом запросе: по нему API узнаёт, кто вы
+  const headers: Record<string, string> = { 'X-Course-Token': COURSE_TOKEN }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
   let response: Response

@@ -15,7 +15,6 @@ type CardsState = {
   deleteCard: (cardId: string) => Promise<void>
   vote: (cardId: string, value: VoteValue | null) => Promise<Card>
   setFilters: (changes: Partial<CardFilters>) => void
-  reset: () => void
 }
 
 /** Новый массив, где заменена одна карточка. Остальные — те же самые объекты, и memo это ценит */
@@ -65,6 +64,4 @@ export const useCardsStore = create<CardsState>()((set) => ({
   },
 
   setFilters: (changes) => set((state) => ({ filters: { ...state.filters, ...changes } })),
-
-  reset: () => set({ cards: [], status: 'idle', error: null, filters: DEFAULT_FILTERS }),
 }))
