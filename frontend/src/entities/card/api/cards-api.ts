@@ -1,11 +1,7 @@
-import { request, type Card, type CardCreate, type CardDetail, type CardUpdate, type VoteValue } from '@/shared/api'
+import { request, type Card, type CardCreate, type CardUpdate, type VoteValue } from '@/shared/api'
 
 export function getCards() {
   return request<Card[]>('/api/cards')
-}
-
-export function getCard(cardId: string) {
-  return request<CardDetail>(`/api/cards/${cardId}`)
 }
 
 export function createCard(body: CardCreate) {

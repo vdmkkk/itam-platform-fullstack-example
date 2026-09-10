@@ -14,6 +14,7 @@ type CardsState = {
   updateCard: (cardId: string, changes: CardUpdate) => Promise<Card>
   deleteCard: (cardId: string) => Promise<void>
   vote: (cardId: string, value: VoteValue | null) => Promise<Card>
+  changeCommentsCount: (cardId: string, delta: number) => void
   setFilters: (changes: Partial<CardFilters>) => void
 }
 
@@ -22,7 +23,7 @@ function replaceCard(cards: Card[], updated: Card) {
   return cards.map((card) => (card.id === updated.id ? updated : card))
 }
 
-// Общий стор карточек: доска, модалка и страница пользователя берут данные отсюда
+// Общий стор карточек: доска, модалка, страница карточки и страница пользователя берут данные отсюда
 export const useCardsStore = create<CardsState>()((set) => ({
   cards: [],
   status: 'idle',
@@ -62,6 +63,14 @@ export const useCardsStore = create<CardsState>()((set) => ({
     set((state) => ({ cards: replaceCard(state.cards, card) }))
     return card
   },
+
+  // Сами комментарии живут в модалке, а счётчик 💬 на превью берётся отсюда — держим его в курсе
+  changeCommentsCount: (cardId, delta) =>
+    set((state) => ({
+      cards: state.cards.map((card) =>
+        card.id === cardId ? { ...card, comments_count: card.comments_count + delta } : card,
+      ),
+    })),
 
   setFilters: (changes) => set((state) => ({ filters: { ...state.filters, ...changes } })),
 }))

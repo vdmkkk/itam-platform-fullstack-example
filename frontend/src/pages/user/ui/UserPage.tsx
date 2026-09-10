@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { CardPreview, useCardsStore } from '@/entities/card'
 import { useAuthStore } from '@/entities/session'
 import { getUser, UserProfile } from '@/entities/user'
@@ -7,11 +7,11 @@ import { ProfileForm } from '@/features/edit-profile'
 import { getErrorMessage, type UserDetail } from '@/shared/api'
 import { routes } from '@/shared/config'
 import { Button, ErrorMessage, Loader } from '@/shared/ui'
+import { CardModal } from '@/widgets/card-modal'
 import styles from './UserPage.module.css'
 
 export function UserPage() {
   const { userId = '' } = useParams()
-  const navigate = useNavigate()
 
   // Кто я — берём из стора авторизации, а не запрашиваем заново
   const me = useAuthStore((state) => state.me)
@@ -22,6 +22,7 @@ export function UserPage() {
   const [user, setUser] = useState<UserDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [openCardId, setOpenCardId] = useState<string | null>(null)
 
   const isMe = me?.id === userId
 
@@ -82,11 +83,14 @@ export function UserPage() {
         ) : (
           <div className={styles.grid}>
             {userCards.map((card) => (
-              <CardPreview key={card.id} card={card} onOpen={(cardId) => navigate(routes.card(cardId))} />
+              <CardPreview key={card.id} card={card} onOpen={setOpenCardId} />
             ))}
           </div>
         )}
       </section>
+
+      {/* Карточка открывается в той же модалке, что и на доске */}
+      {openCardId && <CardModal cardId={openCardId} onClose={() => setOpenCardId(null)} />}
     </div>
   )
 }

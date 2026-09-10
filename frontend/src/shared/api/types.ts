@@ -5,7 +5,6 @@ import type { components } from './schema'
 type Schemas = components['schemas']
 
 export type Card = Schemas['Card']
-export type CardDetail = Schemas['CardDetail']
 export type CardCreate = Schemas['CardCreate']
 export type CardUpdate = Schemas['CardUpdate']
 export type CardType = Schemas['CardType']

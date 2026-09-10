@@ -1,5 +1,9 @@
 import { request, type Comment } from '@/shared/api'
 
+export function getComments(cardId: string) {
+  return request<Comment[]>(`/api/cards/${cardId}/comments`)
+}
+
 export function addComment(cardId: string, text: string) {
   return request<Comment>(`/api/cards/${cardId}/comments`, { method: 'POST', body: { text } })
 }

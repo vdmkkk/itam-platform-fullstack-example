@@ -6,11 +6,9 @@ import styles from './VoteButtons.module.css'
 
 type Props = {
   card: Card
-  /** Вызывается с обновлённой карточкой, если её нужно показать где-то ещё */
-  onVoted?: (card: Card) => void
 }
 
-export function VoteButtons({ card, onVoted }: Props) {
+export function VoteButtons({ card }: Props) {
   const vote = useCardsStore((state) => state.vote)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -19,9 +17,8 @@ export function VoteButtons({ card, onVoted }: Props) {
     setPending(true)
     setError(null)
     try {
-      // Повторный клик по своему голосу отменяет его
-      const updated = await vote(card.id, card.my_vote === value ? null : value)
-      onVoted?.(updated)
+      // Повторный клик по своему голосу отменяет его. Стор заменит карточку, и новый счёт увидят все
+      await vote(card.id, card.my_vote === value ? null : value)
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {

@@ -26,7 +26,7 @@ export function DeleteCardButton({ cardId, onDeleted }: Props) {
 
   return (
     <Button variant="danger" onClick={handleClick} disabled={pending}>
-      Удалить
+      Удалить карточку
     </Button>
   )
 }
